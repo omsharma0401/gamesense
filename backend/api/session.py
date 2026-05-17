@@ -73,28 +73,32 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
     _active_session = session
 
     # Import agents here to avoid circular imports at module level
-    from agents.capture_agent  import CaptureAgent
-    from agents.indexing_agent import IndexingAgent
-    from agents.moment_agent   import MomentAgent
+    from agents.capture_agent    import CaptureAgent
+    from agents.indexing_agent   import IndexingAgent
+    from agents.moment_agent     import MomentAgent
+    from agents.live_coach_agent import LiveCoachAgent
 
-    capture  = CaptureAgent(session.id, body.player_id, body.genre)
-    indexing = IndexingAgent()
-    moment   = MomentAgent(session.id, body.genre, llm, store)
+    capture    = CaptureAgent(session.id, body.player_id, body.genre)
+    indexing   = IndexingAgent()
+    moment     = MomentAgent(session.id, body.genre, llm, store)
+    live_coach = LiveCoachAgent(session, llm, store)
 
     # Store agent refs on app state for stop route access
     from main import app
-    app.state.capture_agent  = capture
-    app.state.indexing_agent = indexing
-    app.state.moment_agent   = moment
+    app.state.capture_agent    = capture
+    app.state.indexing_agent   = indexing
+    app.state.moment_agent     = moment
+    app.state.live_coach_agent = live_coach
 
     async def run_agents():
-        """Run capture + indexing + moment agents concurrently."""
+        """Run capture + indexing + moment + live-coach agents concurrently."""
         try:
-            capture_task  = asyncio.create_task(capture.run())
+            capture_task    = asyncio.create_task(capture.run())
             await capture.wait_for_active(timeout=90)   # wait for RTStream to be live
-            indexing_task = asyncio.create_task(indexing.run())
-            moment_task   = asyncio.create_task(moment.run())
-            await asyncio.gather(capture_task, indexing_task, moment_task, return_exceptions=True)
+            indexing_task   = asyncio.create_task(indexing.run())
+            moment_task     = asyncio.create_task(moment.run())
+            coach_task      = asyncio.create_task(live_coach.run())
+            await asyncio.gather(capture_task, indexing_task, moment_task, coach_task, return_exceptions=True)
         except Exception as exc:
             logger.error("Agent run loop failed: %s", exc, exc_info=True)
 
@@ -124,12 +128,13 @@ async def stop_session(body: SessionStopInput, background_tasks: BackgroundTasks
     logger.info("Stopping session — id=%s", body.session_id)
 
     from main import app
-    capture  = getattr(app.state, "capture_agent",  None)
-    indexing = getattr(app.state, "indexing_agent", None)
-    moment   = getattr(app.state, "moment_agent",   None)
+    capture    = getattr(app.state, "capture_agent",    None)
+    indexing   = getattr(app.state, "indexing_agent",   None)
+    moment     = getattr(app.state, "moment_agent",     None)
+    live_coach = getattr(app.state, "live_coach_agent", None)
 
     # Signal all live agents to stop
-    for agent in [capture, indexing, moment]:
+    for agent in [capture, indexing, moment, live_coach]:
         if agent:
             await agent.stop()
 

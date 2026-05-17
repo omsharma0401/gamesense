@@ -6,7 +6,7 @@ import { api, type HighlightReel, type SessionSummary } from "@/lib/api";
 import { GENRE_CONFIG, type GenreKey } from "@/lib/genres";
 import HlsPlayer from "@/components/ui/HlsPlayer";
 
-interface Props { genre: GenreKey }
+interface Props { genre: GenreKey; game?: string | null }
 
 interface ReelWithSession {
   reel: HighlightReel;
@@ -20,12 +20,10 @@ const GRADIENTS = [
   "from-blue-500/30 to-black",
 ];
 
-export default function HighlightsScreen({ genre }: Props) {
+export default function HighlightsScreen({ genre, game }: Props) {
   const [items, setItems]       = useState<ReelWithSession[]>([]);
   const [loading, setLoading]   = useState(true);
-  // Reel overrides keyed by session_id — updated by polling
   const [reelUpdates, setReelUpdates] = useState<Record<string, HighlightReel>>({});
-  // Session IDs whose vertical reel is currently being generated
   const [verticalProcessing, setVerticalProcessing] = useState<Set<string>>(new Set());
   const processingRef = useRef<Set<string>>(new Set());
 
@@ -36,7 +34,7 @@ export default function HighlightsScreen({ genre }: Props) {
     setReelUpdates({});
     setVerticalProcessing(new Set());
     async function load() {
-      const history = await api.getHistory(undefined, 20);
+      const history = await api.getHistory(undefined, 20, game);
       const genreHistory = history.filter(h => h.genre === genre);
       const results = await Promise.all(
         genreHistory.map(async (s) => {
@@ -48,7 +46,7 @@ export default function HighlightsScreen({ genre }: Props) {
       setLoading(false);
     }
     load();
-  }, [genre]);
+  }, [genre, game]);
 
   // Poll for vertical completion on all currently-processing sessions
   useEffect(() => {
@@ -78,6 +76,8 @@ export default function HighlightsScreen({ genre }: Props) {
     await api.triggerVerticalHighlight(sessionId);
   };
 
+  const visibleItems = items;
+
   const getEffectiveReel = (reel: HighlightReel, sessionId: string): HighlightReel =>
     reelUpdates[sessionId] ?? reel;
 
@@ -93,7 +93,7 @@ export default function HighlightsScreen({ genre }: Props) {
         <div>
           <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">Highlight Reels</h2>
           <p className="text-sm text-gray-400">
-            {cfg.label} · {items.length} reel{items.length !== 1 ? "s" : ""} · Generated automatically after each session
+            {cfg.label}{game ? ` · ${game}` : ""} · {visibleItems.length} reel{visibleItems.length !== 1 ? "s" : ""} · Generated automatically after each session
           </p>
         </div>
       </div>
@@ -102,7 +102,7 @@ export default function HighlightsScreen({ genre }: Props) {
         <div className="text-gray-500 text-sm py-16 text-center">Loading reels…</div>
       )}
 
-      {!loading && items.length === 0 && (
+      {!loading && visibleItems.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
           <Film className="w-12 h-12 text-gray-700" />
           <h3 className="text-white font-semibold text-lg">No highlight reels yet</h3>
@@ -112,9 +112,9 @@ export default function HighlightsScreen({ genre }: Props) {
         </div>
       )}
 
-      {!loading && items.length > 0 && (
+      {!loading && visibleItems.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {items.map(({ reel: originalReel, session }, i) => {
+          {visibleItems.map(({ reel: originalReel, session }, i) => {
             const reel       = getEffectiveReel(originalReel, session.id);
             const processing = verticalProcessing.has(session.id);
 

@@ -47,9 +47,14 @@ class BaseSessionStore(ABC):
 
     @abstractmethod
     async def get_session_history(
-        self, player_id: str, limit: int = 10
+        self, player_id: str, limit: int = 10, game_name: str | None = None
     ) -> list[SessionSummary]:
-        """Return the last `limit` sessions for a player, newest first."""
+        """Return the last `limit` sessions for a player, optionally filtered by game_name."""
+        ...
+
+    @abstractmethod
+    async def get_game_names(self, player_id: str, genre: str | None = None) -> list[str]:
+        """Return distinct game names recorded by a player, optionally filtered by genre."""
         ...
 
     # ── Moment CRUD ───────────────────────────────────────────────────────────

@@ -79,6 +79,16 @@ export interface HighlightReel {
   created_at: string;
 }
 
+export interface Suggestion {
+  id: string;
+  session_id: string;
+  text: string;
+  type: "hype" | "warning" | "tip" | "focus";
+  trigger: string;
+  significance: number;
+  created_at: string;
+}
+
 export interface LiveSessionStatus {
   session_id: string;
   genre: GenreKey;
@@ -91,12 +101,25 @@ export interface LiveSessionStatus {
 }
 
 export const api = {
-  getHistory: async (playerId: string = DEFAULT_PLAYER_ID, limit: number = 10): Promise<SessionSummary[]> => {
+  getHistory: async (playerId: string = DEFAULT_PLAYER_ID, limit: number = 10, gameName?: string | null): Promise<SessionSummary[]> => {
     try {
-      const res = await fetch(`${API_BASE_URL}/analysis/history/${playerId}?limit=${limit}`);
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (gameName) params.set("game_name", gameName);
+      const res = await fetch(`${API_BASE_URL}/analysis/history/${playerId}?${params}`);
       if (!res.ok) return [];
       return res.json();
     } catch (e) {
+      return [];
+    }
+  },
+
+  getGameNames: async (playerId: string = DEFAULT_PLAYER_ID, genre?: string): Promise<string[]> => {
+    try {
+      const params = genre ? `?genre=${encodeURIComponent(genre)}` : "";
+      const res = await fetch(`${API_BASE_URL}/analysis/games/${playerId}${params}`);
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
       return [];
     }
   },
@@ -175,6 +198,17 @@ export const api = {
       return res.json();
     } catch (e) {
       return null;
+    }
+  },
+
+  getSuggestions: async (sessionId: string, since_ms?: number): Promise<Suggestion[]> => {
+    try {
+      const url = `${API_BASE_URL}/suggestions/${sessionId}${since_ms ? `?since_ms=${since_ms}` : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
     }
   },
 

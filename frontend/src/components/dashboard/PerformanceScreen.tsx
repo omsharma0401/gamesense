@@ -6,7 +6,7 @@ import { TrendingUp, Zap, Target, Flame } from "lucide-react";
 import { api, type SessionSummary, type Briefing } from "@/lib/api";
 import { GENRE_CONFIG, type GenreKey } from "@/lib/genres";
 
-interface Props { genre: GenreKey }
+interface Props { genre: GenreKey; game?: string | null }
 
 interface ChartPoint {
   date: string;
@@ -16,7 +16,7 @@ interface ChartPoint {
   consistency: number;
 }
 
-export default function PerformanceScreen({ genre }: Props) {
+export default function PerformanceScreen({ genre, game }: Props) {
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,16 +26,18 @@ export default function PerformanceScreen({ genre }: Props) {
   useEffect(() => {
     setLoading(true);
     async function load() {
-      const [hist, brief] = await Promise.all([api.getHistory(), api.getBriefing()]);
+      const [hist, brief] = await Promise.all([api.getHistory(undefined, 50, game), api.getBriefing()]);
       setHistory(hist.filter(h => h.genre === genre).reverse()); // oldest first for chart
       setBriefing(brief);
       setLoading(false);
     }
     load();
-  }, [genre]);
+  }, [genre, game]);
+
+  const filteredHistory = history;
 
   // Only use sessions that have completed analysis (score != null)
-  const analyzedHistory = history.filter(s => s.score !== null);
+  const analyzedHistory = filteredHistory.filter(s => s.score !== null);
   const latestSession   = analyzedHistory.length > 0 ? analyzedHistory[analyzedHistory.length - 1] : null;
 
   const chartData: ChartPoint[] = analyzedHistory.map((s) => ({
@@ -50,7 +52,7 @@ export default function PerformanceScreen({ genre }: Props) {
   const focusAreas    = briefing?.focus_areas?.length ? briefing.focus_areas : [];
   const coachingText  = briefing?.coaching_paragraph ?? null;
 
-  const totalMoments  = history.reduce((acc, s) => acc + s.moments_detected, 0);
+  const totalMoments  = filteredHistory.reduce((acc, s) => acc + s.moments_detected, 0);
   const avgScore      = analyzedHistory.length > 0
     ? Math.round(analyzedHistory.reduce((acc, s) => acc + (s.score ?? 0), 0) / analyzedHistory.length)
     : null;
@@ -62,9 +64,9 @@ export default function PerformanceScreen({ genre }: Props) {
         <div>
           <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">Performance Overview</h2>
           <p className="text-sm text-gray-400">
-          {cfg.label} · {history.length} session{history.length !== 1 ? "s" : ""} recorded
-          {history.length > analyzedHistory.length && ` · ${analyzedHistory.length} analyzed`}
-        </p>
+            {cfg.label}{game ? ` · ${game}` : ""} · {filteredHistory.length} session{filteredHistory.length !== 1 ? "s" : ""} recorded
+            {filteredHistory.length > analyzedHistory.length && ` · ${analyzedHistory.length} analyzed`}
+          </p>
         </div>
       </div>
 
@@ -129,12 +131,12 @@ export default function PerformanceScreen({ genre }: Props) {
                   <span className="text-xs font-bold tracking-widest uppercase" style={{ color: cfg.color }}>{cfg.label}</span>
                 </div>
                 <h3 className="text-2xl font-bold text-white leading-tight mb-1">
-                  {history.length === 0 ? "No sessions yet" : `${history.length} session${history.length !== 1 ? "s" : ""} played`}
+                  {filteredHistory.length === 0 ? "No sessions yet" : `${filteredHistory.length} session${filteredHistory.length !== 1 ? "s" : ""} played`}
                 </h3>
                 <p className="text-sm text-gray-400">
                   {totalMoments > 0
                     ? `${totalMoments} moment${totalMoments !== 1 ? "s" : ""} detected · avg score ${avgScore ?? "—"}`
-                    : "Start recording to build your performance history."}
+                    : `${game ? `No ${game} sessions yet.` : "Start recording to build your performance history."}`}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">

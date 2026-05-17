@@ -45,9 +45,10 @@ async def lifespan(app: FastAPI):
     app.state.llm   = llm
 
     # Agent refs — set by session routes during a session
-    app.state.capture_agent  = None
-    app.state.indexing_agent = None
-    app.state.moment_agent   = None
+    app.state.capture_agent    = None
+    app.state.indexing_agent   = None
+    app.state.moment_agent     = None
+    app.state.live_coach_agent = None
 
     logger.info("GameSense backend ready — listening on http://localhost:8000")
     yield
@@ -75,15 +76,17 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from api.session  import router as session_router
-from api.analysis import router as analysis_router
-from api.clips    import router as clips_router
-from api.discord  import router as discord_router
+from api.session     import router as session_router
+from api.analysis    import router as analysis_router
+from api.clips       import router as clips_router
+from api.discord     import router as discord_router
+from api.suggestions import router as suggestions_router
 
-app.include_router(session_router,  prefix="/session",  tags=["Session"])
-app.include_router(analysis_router, prefix="/analysis", tags=["Analysis"])
-app.include_router(clips_router,    prefix="/clips",    tags=["Clips"])
-app.include_router(discord_router,  prefix="/discord",  tags=["Discord"])
+app.include_router(session_router,     prefix="/session",     tags=["Session"])
+app.include_router(analysis_router,    prefix="/analysis",    tags=["Analysis"])
+app.include_router(clips_router,       prefix="/clips",       tags=["Clips"])
+app.include_router(discord_router,     prefix="/discord",     tags=["Discord"])
+app.include_router(suggestions_router, prefix="/suggestions", tags=["Suggestions"])
 
 
 @app.get("/health")

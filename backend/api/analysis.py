@@ -6,7 +6,8 @@ GET /briefing/{player_id}    — most recent pre-session coaching brief
 GET /history/{player_id}     — last N sessions for Recharts trend graphs
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query
 from schemas.session import AnalysisResult, Briefing, SessionSummary
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,22 @@ async def get_briefing(player_id: str):
 
 
 @router.get("/history/{player_id}", response_model=list[SessionSummary])
-async def get_history(player_id: str, limit: int = 10):
-    """Return last `limit` sessions for trend graphs. Supports ?limit=N."""
+async def get_history(
+    player_id: str,
+    limit: int = 10,
+    game_name: Optional[str] = Query(None),
+):
+    """Return last `limit` sessions. Supports ?limit=N&game_name=Mario+Kart+8."""
     store   = get_store()
-    history = await store.get_session_history(player_id, limit=limit)
-    logger.info("Serving history — player=%s sessions=%d", player_id, len(history))
+    history = await store.get_session_history(player_id, limit=limit, game_name=game_name)
+    logger.info("Serving history — player=%s game=%s sessions=%d", player_id, game_name, len(history))
     return history
+
+
+@router.get("/games/{player_id}", response_model=list[str])
+async def get_games(player_id: str, genre: Optional[str] = Query(None)):
+    """Return distinct game names recorded by a player, optionally filtered by genre."""
+    store = get_store()
+    games = await store.get_game_names(player_id, genre=genre)
+    logger.info("Serving game names — player=%s genre=%s count=%d", player_id, genre, len(games))
+    return games

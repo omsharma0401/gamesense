@@ -5,19 +5,19 @@ import { Badge } from "@/components/ui/badge";
 import { api, type SessionSummary } from "@/lib/api";
 import { GENRE_CONFIG, type GenreKey } from "@/lib/genres";
 
-interface Props { genre: GenreKey }
+interface Props { genre: GenreKey; game?: string | null }
 
-export default function RecordsScreen({ genre }: Props) {
+export default function RecordsScreen({ genre, game }: Props) {
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    api.getHistory(undefined, 50).then(h => {
+    api.getHistory(undefined, 50, game).then(h => {
       setHistory(h.filter(s => s.genre === genre));
       setLoading(false);
     });
-  }, [genre]);
+  }, [genre, game]);
 
   const formatDuration = (start: string, end: string | null) => {
     if (!end) return "Live";

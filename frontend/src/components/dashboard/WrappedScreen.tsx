@@ -9,7 +9,7 @@ import { api, type SessionSummary, type AnalysisResult, type Clip, type Highligh
 import { GENRE_CONFIG, type GenreKey, type MomentType } from "@/lib/genres";
 import HlsPlayer from "@/components/ui/HlsPlayer";
 
-interface Props { genre: GenreKey }
+interface Props { genre: GenreKey; game?: string | null }
 
 // ── Animated number counter ──────────────────────────────────────────────────
 function AnimatedNumber({ target, duration = 1.2, className }: { target: number; duration?: number; className?: string }) {
@@ -52,7 +52,7 @@ function getPersonaTheme(persona: string | null) {
 // ── Pattern icons ─────────────────────────────────────────────────────────────
 const PATTERN_ICONS = [Trophy, Flame, Zap, Target, TrendingUp, Trophy];
 
-export default function WrappedScreen({ genre }: Props) {
+export default function WrappedScreen({ genre, game }: Props) {
   const [sessions, setSessions]     = useState<SessionSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [analysis, setAnalysis]     = useState<AnalysisResult | null>(null);
@@ -66,13 +66,14 @@ export default function WrappedScreen({ genre }: Props) {
   // Load session list
   useEffect(() => {
     setLoading(true);
-    api.getHistory(undefined, 20).then(h => {
+    setSelectedId(null);
+    api.getHistory(undefined, 20, game).then(h => {
       const analyzed = h.filter(s => s.genre === genre && s.score !== null);
       setSessions(analyzed);
       if (analyzed.length > 0) setSelectedId(analyzed[0].id); // most recent first
       else setLoading(false);
     });
-  }, [genre]);
+  }, [genre, game]);
 
   // Load analysis when selected session changes
   useEffect(() => {

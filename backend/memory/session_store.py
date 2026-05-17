@@ -23,7 +23,7 @@ import aiosqlite
 from memory.interfaces import BaseSessionStore
 from schemas.session import (
     Session, SessionSummary, Moment, Briefing,
-    AnalysisResult, HighlightReel, Score, Clip,
+    AnalysisResult, HighlightReel, Score, Clip, Suggestion,
 )
 from config import SQLITE_DB_PATH
 
@@ -118,6 +118,19 @@ class SQLiteSessionStore(BaseSessionStore):
                 data        TEXT NOT NULL,      -- full HighlightReel JSON
                 created_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS suggestions (
+                id          TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                text        TEXT NOT NULL,
+                type        TEXT NOT NULL,
+                trigger     TEXT NOT NULL,
+                significance INTEGER DEFAULT 5,
+                created_at  TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_suggestions_session
+                ON suggestions(session_id, created_at ASC);
         """)
         await self._conn.commit()
         logger.debug("SQLite tables created / verified")
@@ -201,18 +214,21 @@ class SQLiteSessionStore(BaseSessionStore):
         return self._row_to_session(row)
 
     async def get_session_history(
-        self, player_id: str, limit: int = 10
+        self, player_id: str, limit: int = 10, game_name: str | None = None
     ) -> list[SessionSummary]:
         assert self._conn
-        async with self._conn.execute(
-            """SELECT id, genre, game_name, score_overall, score_mechanics, score_decision,
-                      score_consistency, moments_detected, started_at, ended_at
-               FROM sessions
-               WHERE player_id = ? AND status != 'active'
-               ORDER BY started_at DESC
-               LIMIT ?""",
-            (player_id, limit),
-        ) as cursor:
+        query = """SELECT id, genre, game_name, score_overall, score_mechanics, score_decision,
+                          score_consistency, moments_detected, started_at, ended_at
+                   FROM sessions
+                   WHERE player_id = ? AND status != 'active'"""
+        params: list = [player_id]
+        if game_name:
+            query += " AND game_name = ?"
+            params.append(game_name)
+        query += " ORDER BY started_at DESC LIMIT ?"
+        params.append(limit)
+
+        async with self._conn.execute(query, params) as cursor:
             rows = await cursor.fetchall()
 
         summaries = [
@@ -230,8 +246,22 @@ class SQLiteSessionStore(BaseSessionStore):
             )
             for r in rows
         ]
-        logger.debug("Fetched %d sessions for player=%s", len(summaries), player_id)
+        logger.debug("Fetched %d sessions for player=%s game=%s", len(summaries), player_id, game_name)
         return summaries
+
+    async def get_game_names(self, player_id: str, genre: str | None = None) -> list[str]:
+        assert self._conn
+        query = """SELECT DISTINCT game_name FROM sessions
+                   WHERE player_id = ? AND game_name IS NOT NULL AND status != 'active'"""
+        params: list = [player_id]
+        if genre:
+            query += " AND genre = ?"
+            params.append(genre)
+        query += " ORDER BY game_name ASC"
+
+        async with self._conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+        return [r["game_name"] for r in rows]
 
     # ── Moment CRUD ───────────────────────────────────────────────────────────
 
@@ -358,6 +388,58 @@ class SQLiteSessionStore(BaseSessionStore):
         if not row:
             return None
         return HighlightReel.model_validate_json(row["data"])
+
+    # ── Suggestions ──────────────────────────────────────────────────────────
+
+    async def save_suggestion(self, suggestion: Suggestion) -> None:
+        async with _write_lock:
+            assert self._conn
+            await self._conn.execute(
+                """INSERT OR REPLACE INTO suggestions
+                   (id, session_id, text, type, trigger, significance, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    suggestion.id,
+                    suggestion.session_id,
+                    suggestion.text,
+                    suggestion.type,
+                    suggestion.trigger,
+                    suggestion.significance,
+                    suggestion.created_at.isoformat(),
+                ),
+            )
+            await self._conn.commit()
+
+    async def get_suggestions(self, session_id: str, since_ms: int = 0) -> list[Suggestion]:
+        assert self._conn
+        # since_ms is epoch ms; created_at is ISO string — convert for comparison
+        # Simpler: fetch all for session and filter in Python (suggestions volume is tiny)
+        async with self._conn.execute(
+            "SELECT * FROM suggestions WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        result = []
+        for row in rows:
+            from datetime import timezone
+            from schemas.session import Suggestion as Sug
+            s = Sug(
+                id=row["id"],
+                session_id=row["session_id"],
+                text=row["text"],
+                type=row["type"],
+                trigger=row["trigger"],
+                significance=row["significance"],
+                created_at=row["created_at"],
+            )
+            # Filter by since_ms if provided
+            if since_ms:
+                ts_ms = int(s.created_at.replace(tzinfo=timezone.utc).timestamp() * 1000)
+                if ts_ms <= since_ms:
+                    continue
+            result.append(s)
+        return result
 
     # ── Row → Model helpers ───────────────────────────────────────────────────
 

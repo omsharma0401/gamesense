@@ -8,10 +8,14 @@ import { api, type Clip } from "@/lib/api";
 import HlsPlayer from "@/components/ui/HlsPlayer";
 import { GENRE_CONFIG, type GenreKey, type MomentType } from "@/lib/genres";
 
-interface Props { genre: GenreKey }
+interface Props { genre: GenreKey; game?: string | null }
 
-export default function AllClipsScreen({ genre }: Props) {
-  const [clips, setClips] = useState<Clip[]>([]);
+interface TaggedClip extends Clip {
+  game_name: string | null;
+}
+
+export default function AllClipsScreen({ genre, game }: Props) {
+  const [clips, setClips] = useState<TaggedClip[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<MomentType | "all">("all");
 
@@ -21,24 +25,25 @@ export default function AllClipsScreen({ genre }: Props) {
     setActiveFilter("all");
     setLoading(true);
     async function load() {
-      const history = await api.getHistory();
+      const history = await api.getHistory(undefined, 100, game);
       const genreHistory = history.filter(h => h.genre === genre);
 
-      const allClips: Clip[] = [];
+      const allClips: TaggedClip[] = [];
       await Promise.all(
         genreHistory.map(async (s) => {
           const c = await api.getClips(s.id);
-          allClips.push(...c);
+          allClips.push(...c.map(clip => ({ ...clip, game_name: s.game_name })));
         })
       );
-      // Sort newest first (by start_time descending — proxy for recency within session)
       setClips(allClips);
       setLoading(false);
     }
     load();
-  }, [genre]);
+  }, [genre, game]);
 
-  // Count per type for showing/hiding filter badges
+  const filtered = activeFilter === "all" ? clips : clips.filter(c => c.type === activeFilter);
+
+  // Count per type
   const typeCounts = useMemo(() => {
     const counts: Partial<Record<MomentType, number>> = {};
     for (const c of clips) {
@@ -47,8 +52,6 @@ export default function AllClipsScreen({ genre }: Props) {
     return counts;
   }, [clips]);
 
-  const filtered = activeFilter === "all" ? clips : clips.filter(c => c.type === activeFilter);
-
   return (
     <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
@@ -56,11 +59,13 @@ export default function AllClipsScreen({ genre }: Props) {
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 pb-2">
         <div>
           <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">All Clips</h2>
-          <p className="text-sm text-gray-400">{cfg.label} · {clips.length} clip{clips.length !== 1 ? "s" : ""} across all sessions</p>
+          <p className="text-sm text-gray-400">
+            {cfg.label}{game ? ` · ${game}` : ""} · {clips.length} clip{clips.length !== 1 ? "s" : ""}
+          </p>
         </div>
       </div>
 
-      {/* Filter badges — hidden when count = 0 */}
+      {/* Moment type filter badges */}
       <div className="flex gap-3 flex-wrap">
         <button
           onClick={() => setActiveFilter("all")}

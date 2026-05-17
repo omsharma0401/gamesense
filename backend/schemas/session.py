@@ -84,6 +84,22 @@ class Briefing(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ── Suggestion ────────────────────────────────────────────────────────────────
+
+SuggestionType = Literal["hype", "warning", "tip", "focus"]
+
+class Suggestion(BaseModel):
+    """A live coaching cue emitted during a session by LiveCoachAgent."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    text: str = Field(..., description="The coaching cue — max ~12 words")
+    type: SuggestionType = Field(..., description="hype | warning | tip | focus")
+    trigger: str = Field(..., description="moment:<type> or pattern:<name>")
+    significance: int = Field(5, ge=1, le=10)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── AnalysisResult ────────────────────────────────────────────────────────────
 
 class AnalysisResult(BaseModel):
