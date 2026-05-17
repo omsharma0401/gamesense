@@ -36,50 +36,81 @@ logger = logging.getLogger(__name__)
 
 _GENRE_CONTEXT = {
     "arcade-racing": (
-        "This is an Arcade Racing game. "
-        "Use `highlight` for clean overtakes or best laps, `clutch` for last-second recoveries or close finishes, "
-        "`kill` for a dominant overtake, `death` for crashing or being passed badly, "
-        "`error` for missed corners or poor lines, `strategy_break` for unexpected route/pit changes, "
-        "`blunder` for major crashes or race-ending mistakes."
+        "GENRE: Arcade Racing.\n"
+        "MOMENT TYPES:\n"
+        "  `highlight` — A clean, textbook overtake or a new personal best lap. The kind of line that makes a pro nod.\n"
+        "  `clutch` — Last-second save: drafted past on the final straight, recovered from a near-crash, or held off a chase for 2+ laps.\n"
+        "  `kill` — A dominant, clinical overtake — left the opponent with zero chance to respond.\n"
+        "  `death` — Crashed hard, spun out, or got overtaken in an embarrassing way. Position lost.\n"
+        "  `error` — Missed apex, braked too late, clipped a wall, or ran wide. Cost time.\n"
+        "  `strategy_break` — Switched racing line mid-race, took an unexpected shortcut, changed tactic.\n"
+        "  `blunder` — Major crash, collision that ended a run, or catastrophic position loss in one incident.\n"
+        "SIGNIFICANCE GUIDE: Overtaking for 1st place late = 9-10. Overtaking for top 5 = 7-8. Minor position change = 4-6. Clip wall = 3. Loading screen = 0."
     ),
     "tactical-shooter": (
-        "This is a Tactical Shooter (FPS). "
-        "Use `kill` for frags/eliminations, `death` for the player dying, "
-        "`clutch` for 1vN situations or low-HP recoveries, `error` for poor positioning or missed shots, "
-        "`strategy_break` for mid-round strategy pivots, `highlight` for exceptional mechanical plays, "
-        "`blunder` for team kills, throwing plays, or catastrophic mistakes."
+        "GENRE: Tactical Shooter (FPS/Tactical).\n"
+        "MOMENT TYPES:\n"
+        "  `kill` — Clean frag or elimination. Extra weight if it's through smoke, long range, or clutch timing.\n"
+        "  `death` — Player eliminated. Note if it was avoidable (poor positioning, peeked too early).\n"
+        "  `clutch` — 1vN scenario (player vs multiple opponents), or surviving with near-zero HP. Heart-pounding.\n"
+        "  `highlight` — Exceptional mechanical play: no-scope, spray transfer, prefiring blind, pixel-perfect flick.\n"
+        "  `error` — Repositioning mistake, peeked too early, threw a grenade poorly, rotated wrong.\n"
+        "  `strategy_break` — Mid-round shift: eco to force-buy, abandoned plant site, unexpected rotate, fake.\n"
+        "  `blunder` — Team kill, weapon drop at wrong moment, failed plant/defuse, round-ending mistake under pressure.\n"
+        "SIGNIFICANCE GUIDE: 1v3+ clutch = 9-10. Entry frag or ace = 8-9. Clean 2-tap = 6-7. Standard kill = 4-5. Menu/loadout screen = 0."
     ),
     "rts": (
-        "This is a Real-Time Strategy game. "
-        "Use `kill` for successful unit trades or army wipes, `death` for losing a base or major army, "
-        "`clutch` for clutch defenses under pressure, `error` for supply blocks or eco mistakes, "
-        "`strategy_break` for tech switches or unexpected build orders, `highlight` for decisive battles, "
-        "`blunder` for major strategic blunders."
+        "GENRE: Real-Time Strategy.\n"
+        "MOMENT TYPES:\n"
+        "  `kill` — Successful army engagement: wiped enemy units, took out a key structure.\n"
+        "  `death` — Lost a major army, base structure destroyed, or key unit eliminated.\n"
+        "  `clutch` — Held off an attack with inferior forces, last-minute resource shift that turned the game.\n"
+        "  `highlight` — Perfectly executed build order, map control established, or decisive tech advantage secured.\n"
+        "  `error` — Supply block, mineral float (over-saturation), missed attack timing, or poor unit positioning.\n"
+        "  `strategy_break` — Tech tree pivot, unexpected all-in, hidden expansion, or timing attack.\n"
+        "  `blunder` — Lost macro advantage, base traded badly, catastrophic army loss from miscontrol.\n"
+        "SIGNIFICANCE GUIDE: Army wipe / base destruction = 9-10. Major skirmish win = 7-8. Supply block = 4-5. Small scout lost = 2-3."
     ),
     "turn-based-tactics": (
-        "This is a Turn-Based Tactics game. "
-        "Use `kill` for eliminating enemy units, `death` for losing a unit, "
-        "`clutch` for winning against the odds in a single turn, `error` for tactical mistakes or wasted turns, "
-        "`strategy_break` for unexpected strategy pivots, `highlight` for perfectly executed turns, "
-        "`blunder` for friendly fire or catastrophic positioning errors."
+        "GENRE: Turn-Based Tactics.\n"
+        "MOMENT TYPES:\n"
+        "  `kill` — Enemy unit eliminated, especially a high-value target.\n"
+        "  `death` — Player unit lost — was it avoidable? Note if the unit was overexposed.\n"
+        "  `clutch` — Turn where a seemingly lost situation was reversed, often with precise multi-unit coordination.\n"
+        "  `highlight` — Perfect ambush, flanking manoeuvre that broke the line, or a setup that created a domino effect.\n"
+        "  `error` — Wasted action (unit moved but couldn't act), friendly unit trapped, or missed optimal move.\n"
+        "  `strategy_break` — Full pivot in tactical approach, gave up a position strategically, or used an unexpected ability chain.\n"
+        "  `blunder` — Friendly fire, catastrophic positioning (unit isolated and killed), or missed win condition.\n"
+        "SIGNIFICANCE GUIDE: Clutch reversal = 9-10. High-value kill = 7-8. Setup move = 5-6. Minor tactical gain = 3-4."
     ),
 }
 
-_MOMENT_BASE_PROMPT = """You are an AI gaming coach watching live gameplay events.
-Each event is a timestamped description of what the AI vision model saw on screen.
+_MOMENT_BASE_PROMPT = """You are a live esports broadcast analyst watching real-time gameplay events from an AI vision feed.
+Your job: identify genuinely significant game moments that belong in a highlight reel.
 
-Your job: decide if the last batch of events contains a genuinely significant game moment.
-Be selective — only tag events that a highlight reel editor would care about.
-Filter out: loading screens, menus, spectator cam, idle periods, and minor events.
+STRICT FILTERS — return is_moment=false for:
+  - Loading screens, menus, inventory/loadout screens
+  - Spectator cam or other players' perspectives
+  - Idle periods, cutscenes, map transitions
+  - Minor position adjustments or routine actions
+
+Only flag events a broadcast director would cut to. Be selective — quality over quantity.
+
+COMMENTARY GUIDE — write commentary like a live esports caster:
+  - Use present tense: "He HOLDS the angle", "She THREADS the needle"
+  - Punchy and vivid: "Silky smooth", "No hesitation", "Textbook execution"
+  - For errors: honest but constructive: "Pushed too early — classic over-aggression"
+  - For blunders: "Oh no — that's a round-ending mistake right there"
+  - Keep it to 1-2 sentences maximum
 
 You MUST respond with a JSON object using EXACTLY these field names:
 {{
   "is_moment": true or false,
   "type": one of "kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder", or "none",
-  "description": "brief description of what happened",
-  "significance": integer 0-10 (0 if is_moment is false),
+  "description": "Concrete factual description of exactly what happened and what it means for the game state",
+  "significance": integer 0-10 (0 if is_moment is false, see genre significance guide above),
   "timestamp_ms": integer unix timestamp in milliseconds ({ts_note}),
-  "commentary": "coaching insight or highlight reel commentary"
+  "commentary": "Broadcast-style caster commentary, 1-2 sentences, present tense, vivid language"
 }}"""
 
 

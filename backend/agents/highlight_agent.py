@@ -19,6 +19,12 @@ from config import (
     MAX_HIGHLIGHT_CLIPS,
 )
 
+try:
+    from videodb import ReframeMode  # type: ignore
+    _REFRAME_AVAILABLE = True
+except ImportError:
+    _REFRAME_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,10 +41,10 @@ def _select_highlight_clips(clips: list[Clip], max_clips: int) -> list[Clip]:
 
 
 def _build_narration_text(clips: list[Clip], session: Session) -> str:
-    lines = [f"GameSense highlight reel — {session.genre}. Here are your best moments."]
+    lines = []
     for clip in clips:
         lines.append(clip.commentary)
-    lines.append("That's your session. Keep grinding.")
+    lines.append("What a session. Stay locked in.")
     return " ".join(lines)
 
 
@@ -87,6 +93,10 @@ class HighlightAgent(BaseAgent):
                 reel.status     = "complete"
                 reel.duration   = sum(c.duration for c in clips)
                 logger.info("Highlight reel complete — url=%s duration=%.1fs", stream_url, reel.duration)
+
+                # Generate vertical (9:16) version in background — non-blocking
+                if _REFRAME_AVAILABLE and self._session.video_id:
+                    asyncio.create_task(self._generate_vertical(reel, clips))
             else:
                 reel.status = "failed"
                 logger.warning("Timeline returned no stream URL")
@@ -103,6 +113,76 @@ class HighlightAgent(BaseAgent):
     async def stop(self) -> None:
         pass  # runs once
 
+    async def _generate_vertical(self, reel: HighlightReel, clips: list[Clip]) -> None:
+        """Generate 9:16 vertical version of the highlight reel using video.reframe()."""
+        logger.info("Generating vertical highlight — session=%s", self._session.id)
+        try:
+            vertical_url = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self._vertical_sync(clips)
+            )
+            if vertical_url:
+                reel.vertical_stream_url = vertical_url
+                await self._store.save_highlight_reel(reel)
+                logger.info("Vertical highlight ready — url=%s", vertical_url)
+        except Exception as exc:
+            logger.warning("Vertical highlight failed: %s", exc)
+
+    def _vertical_sync(self, clips: list[Clip]) -> Optional[str]:
+        """Reframe each clip to 9:16 and assemble vertical timeline. Synchronous."""
+        try:
+            import videodb
+            from videodb import ReframeMode
+            from videodb.editor import Timeline, Track, Clip as VClip, VideoAsset
+
+            conn  = videodb.connect(api_key=VIDEO_DB_API_KEY)
+            coll  = conn.get_collection()
+            video = coll.get_video(self._session.video_id)
+
+            reframed: list[tuple[str, float]] = []
+            for c in clips:
+                try:
+                    rv = video.reframe(
+                        start=max(0.0, c.start_time),
+                        end=c.end_time,
+                        target="vertical",
+                        mode=ReframeMode.smart,
+                    )
+                    if rv:
+                        # rv.length defaults to 0.0 when not returned; fall back to clip duration
+                        dur = float(rv.length) if rv.length else max(1.0, c.end_time - c.start_time)
+                        reframed.append((rv.id, dur))
+                        logger.debug("Reframed clip — id=%s dur=%.1fs", rv.id, dur)
+                except Exception as exc:
+                    logger.warning("Reframe failed for clip=%s: %s", c.id, exc)
+
+            if not reframed:
+                return None
+
+            # Single clip: stream directly without Timeline overhead
+            if len(reframed) == 1:
+                vid_id, _ = reframed[0]
+                rv_video = coll.get_video(vid_id)
+                return rv_video.generate_stream()
+
+            # Multiple clips: assemble into a vertical timeline
+            timeline = Timeline(conn)
+            timeline.resolution = "608x1080"
+            timeline.background = "#000000"
+
+            track = Track()
+            cursor = 0
+            for vid_id, dur in reframed:
+                track.add_clip(cursor, VClip(asset=VideoAsset(id=vid_id), duration=dur))
+                cursor += int(dur) + 1
+
+            timeline.add_track(track)
+            url = timeline.generate_stream()
+            logger.info("Vertical timeline stream: %s", url)
+            return url
+        except Exception as exc:
+            logger.error("Vertical highlight assembly failed: %s", exc, exc_info=True)
+            return None
+
     async def _generate_narration(self, text: str) -> Optional[str]:
         logger.info("Generating OmniVoice narration — chars=%d", len(text))
         return await asyncio.get_event_loop().run_in_executor(None, lambda: self._narration_sync(text))
@@ -115,7 +195,7 @@ class HighlightAgent(BaseAgent):
             # generate_voice() — see .agents/skills/videodb/reference/generative.md
             audio = coll.generate_voice(
                 text=text,
-                config={"instructions": "Confident gaming commentary voice, fast-paced, energetic"},
+                config={"instructions": "Live esports play-by-play commentator. High energy, punchy, dramatic pauses on big moments. Sounds like a stadium broadcast — excited but professional. Short sentences. React to the action."},
             )
             logger.info("Narration generated — audio_id=%s", audio.id)
             return audio.id

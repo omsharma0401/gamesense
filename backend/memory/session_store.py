@@ -52,6 +52,7 @@ class SQLiteSessionStore(BaseSessionStore):
         self._conn = await aiosqlite.connect(self._db_path)
         self._conn.row_factory = aiosqlite.Row
         await self._create_tables()
+        await self._migrate()
         logger.info("SQLite DB ready")
 
     async def close(self) -> None:
@@ -66,6 +67,7 @@ class SQLiteSessionStore(BaseSessionStore):
                 id              TEXT PRIMARY KEY,
                 player_id       TEXT NOT NULL,
                 genre           TEXT NOT NULL,
+                game_name       TEXT,
                 status          TEXT NOT NULL DEFAULT 'active',
                 video_id        TEXT,
                 rtstream_id     TEXT,
@@ -120,20 +122,30 @@ class SQLiteSessionStore(BaseSessionStore):
         await self._conn.commit()
         logger.debug("SQLite tables created / verified")
 
+    async def _migrate(self) -> None:
+        """Add columns introduced after initial schema — idempotent."""
+        assert self._conn
+        try:
+            await self._conn.execute("ALTER TABLE sessions ADD COLUMN game_name TEXT")
+            await self._conn.commit()
+            logger.info("Migration: added game_name column to sessions")
+        except Exception:
+            pass  # column already exists
+
     # ── Session CRUD ──────────────────────────────────────────────────────────
 
     async def create_session(self, session: Session) -> None:
-        logger.info("Creating session row — id=%s genre=%s", session.id, session.genre)
+        logger.info("Creating session row — id=%s genre=%s game=%s", session.id, session.genre, session.game_name)
         async with _write_lock:
             assert self._conn
             await self._conn.execute(
                 """INSERT INTO sessions
-                   (id, player_id, genre, status, video_id, rtstream_id,
+                   (id, player_id, genre, game_name, status, video_id, rtstream_id,
                     moments_detected, started_at, ended_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    session.id, session.player_id, session.genre, session.status,
-                    session.video_id, session.rtstream_id,
+                    session.id, session.player_id, session.genre, session.game_name,
+                    session.status, session.video_id, session.rtstream_id,
                     session.moments_detected,
                     session.started_at.isoformat(),
                     session.ended_at.isoformat() if session.ended_at else None,
@@ -193,7 +205,7 @@ class SQLiteSessionStore(BaseSessionStore):
     ) -> list[SessionSummary]:
         assert self._conn
         async with self._conn.execute(
-            """SELECT id, genre, score_overall, score_mechanics, score_decision,
+            """SELECT id, genre, game_name, score_overall, score_mechanics, score_decision,
                       score_consistency, moments_detected, started_at, ended_at
                FROM sessions
                WHERE player_id = ? AND status != 'active'
@@ -207,6 +219,7 @@ class SQLiteSessionStore(BaseSessionStore):
             SessionSummary(
                 id=r["id"],
                 genre=r["genre"],
+                game_name=r["game_name"],
                 score=r["score_overall"],
                 mechanics=r["score_mechanics"],
                 decision_making=r["score_decision"],
@@ -363,6 +376,7 @@ class SQLiteSessionStore(BaseSessionStore):
             id=row["id"],
             player_id=row["player_id"],
             genre=row["genre"],
+            game_name=row["game_name"] if "game_name" in row.keys() else None,
             status=row["status"],
             video_id=row["video_id"],
             rtstream_id=row["rtstream_id"],

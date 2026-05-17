@@ -34,9 +34,11 @@ export default function PerformanceScreen({ genre }: Props) {
     load();
   }, [genre]);
 
-  const latestSession = history.length > 0 ? history[history.length - 1] : null;
+  // Only use sessions that have completed analysis (score != null)
+  const analyzedHistory = history.filter(s => s.score !== null);
+  const latestSession   = analyzedHistory.length > 0 ? analyzedHistory[analyzedHistory.length - 1] : null;
 
-  const chartData: ChartPoint[] = history.map((s) => ({
+  const chartData: ChartPoint[] = analyzedHistory.map((s) => ({
     date:        new Date(s.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
     overall:     s.score            ?? 0,
     mechanics:   s.mechanics        ?? 0,
@@ -49,8 +51,8 @@ export default function PerformanceScreen({ genre }: Props) {
   const coachingText  = briefing?.coaching_paragraph ?? null;
 
   const totalMoments  = history.reduce((acc, s) => acc + s.moments_detected, 0);
-  const avgScore      = history.length > 0
-    ? Math.round(history.reduce((acc, s) => acc + (s.score ?? 0), 0) / history.length)
+  const avgScore      = analyzedHistory.length > 0
+    ? Math.round(analyzedHistory.reduce((acc, s) => acc + (s.score ?? 0), 0) / analyzedHistory.length)
     : null;
 
   return (
@@ -59,7 +61,10 @@ export default function PerformanceScreen({ genre }: Props) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-2">
         <div>
           <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">Performance Overview</h2>
-          <p className="text-sm text-gray-400">{cfg.label} · {history.length} session{history.length !== 1 ? "s" : ""} recorded</p>
+          <p className="text-sm text-gray-400">
+          {cfg.label} · {history.length} session{history.length !== 1 ? "s" : ""} recorded
+          {history.length > analyzedHistory.length && ` · ${analyzedHistory.length} analyzed`}
+        </p>
         </div>
       </div>
 
@@ -188,13 +193,16 @@ export default function PerformanceScreen({ genre }: Props) {
           {latestSession ? (
             <div className="space-y-3">
               {[
-                { label: "Overall",     value: latestSession.score },
-                { label: "Mechanics",   value: latestSession.mechanics },
-                { label: "Decisions",   value: latestSession.decision_making },
-                { label: "Consistency", value: latestSession.consistency },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex items-center justify-between">
-                  <span className="text-gray-400 text-sm">{label}</span>
+                { label: "Overall",     sub: "Combined score",                    value: latestSession.score },
+                { label: "Mechanics",   sub: "Aim, movement, execution",          value: latestSession.mechanics },
+                { label: "Decisions",   sub: "Positioning, timing, strategy",     value: latestSession.decision_making },
+                { label: "Consistency", sub: "How stable your performance was",   value: latestSession.consistency },
+              ].map(({ label, sub, value }) => (
+                <div key={label} className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <span className="text-gray-300 text-sm font-medium">{label}</span>
+                    <p className="text-gray-600 text-[11px] leading-tight">{sub}</p>
+                  </div>
                   <div className="flex items-center gap-3">
                     <div className="w-32 h-1.5 bg-[#27272a] rounded-full overflow-hidden">
                       <div

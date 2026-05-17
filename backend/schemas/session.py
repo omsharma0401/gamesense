@@ -60,6 +60,7 @@ class Clip(BaseModel):
     moment_id: str
     session_id: str
     stream_url: str = Field(..., description="VideoDB CDN stream URL — embed directly")
+    thumbnail_url: Optional[str] = Field(None, description="Static thumbnail image URL")
     start_time: float = Field(..., description="Clip start in seconds (clamped to >= 0)")
     end_time: float = Field(..., description="Clip end in seconds")
     commentary: str = Field(..., description="AI commentary explaining this clip")
@@ -97,6 +98,8 @@ class AnalysisResult(BaseModel):
         description="Recurring behavioural patterns detected across the session",
     )
     summary: str = Field(..., description="AI-written session summary paragraph")
+    epic_summary: Optional[str] = Field(None, description="One punchy Spotify Wrapped-style line about the session")
+    persona: Optional[str] = Field(None, description="Player archetype for this session, e.g. 'The Clutch Artist'")
     status: AnalysisStatus = "pending"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -108,7 +111,8 @@ class HighlightReel(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
-    stream_url: Optional[str] = Field(None, description="VideoDB stream URL once generated")
+    stream_url: Optional[str] = Field(None, description="16:9 landscape HLS stream URL")
+    vertical_stream_url: Optional[str] = Field(None, description="9:16 vertical HLS URL for Reels/TikTok sharing")
     duration: Optional[float] = None
     status: HighlightStatus = "pending"
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -122,6 +126,7 @@ class Session(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     player_id: str
     genre: GameGenre
+    game_name: Optional[str] = Field(None, description="Specific game title, e.g. 'Mario Kart 8'")
     status: SessionStatus = "active"
 
     # VideoDB references
@@ -144,6 +149,7 @@ class SessionSummary(BaseModel):
 
     id: str
     genre: GameGenre
+    game_name: Optional[str] = None
     score: Optional[int] = None
     mechanics: Optional[int] = None
     decision_making: Optional[int] = None

@@ -72,16 +72,40 @@ class AnalysisOutput(BaseModel):
     patterns: list[str] = Field(
         ...,
         description=(
-            "Recurring behavioural patterns observed across the session. "
-            "Be specific: 'You pushed the same corner 3 times and died each time' "
-            "not 'You made some mistakes.'"
+            "3-6 recurring behavioural patterns observed across the session. "
+            "Be hyper-specific: cite the moment type, how many times it happened, and the outcome. "
+            "Example: 'You hit 3 of 4 clutch situations — all late round, all low HP. Ice in your veins.' "
+            "not vague generalities like 'You made some mistakes.'"
         ),
     )
     summary: str = Field(
         ...,
         description=(
-            "One paragraph session summary written in second-person coaching voice. "
-            "Lead with one genuine strength, then the most important thing to fix."
+            "One paragraph session summary in second-person coaching voice. "
+            "Be specific and vivid. Lead with the session's defining quality in one punchy sentence. "
+            "Reference actual moment types and counts. "
+            "End with the one thing that, if fixed, would unlock the next level."
+        ),
+    )
+    epic_summary: str = Field(
+        ...,
+        description=(
+            "One short, punchy sentence — Spotify Wrapped energy. "
+            "Captures the defining vibe of this session. "
+            "Examples: 'Pure aggression. Five kills, zero chill.' "
+            "'You played the long game — and it paid off.' "
+            "'Consistency was your weapon today.' "
+            "Do NOT start with 'You'. Make it feel like a headline."
+        ),
+    )
+    persona: str = Field(
+        ...,
+        description=(
+            "A 2-4 word player archetype title that captures how the player performed this session. "
+            "Arcade Racing examples: 'The Smooth Operator', 'The Overtake Machine', 'The Corner Cutter'. "
+            "Tactical Shooter examples: 'The Clutch Artist', 'The Entry Fragger', 'The Support Anchor'. "
+            "RTS examples: 'The Macro Mastermind', 'The Micro Mechanic', 'The Rush Specialist'. "
+            "Match the persona to the most dominant pattern in the session."
         ),
     )
 
@@ -114,6 +138,7 @@ class BriefingOutput(BaseModel):
 class SessionStartInput(BaseModel):
     genre: GameGenre = Field(..., description="Game genre, e.g. 'tactical-shooter'")
     player_id: str = Field(..., description="Unique player identifier")
+    game_name: Optional[str] = Field(None, description="Specific game title, e.g. 'Mario Kart 8'")
 
 
 class SessionStopInput(BaseModel):
@@ -134,6 +159,7 @@ class DiscordShareInput(BaseModel):
 class LiveSessionStatus(BaseModel):
     session_id: str
     genre: GameGenre
+    game_name: Optional[str] = None
     player_id: str
     status: Literal["active", "processing", "complete", "failed"]
     moments_detected: int = 0

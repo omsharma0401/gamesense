@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api, type Clip } from "@/lib/api";
+import HlsPlayer from "@/components/ui/HlsPlayer";
 import { GENRE_CONFIG, type GenreKey, type MomentType } from "@/lib/genres";
 
 interface Props { genre: GenreKey }
@@ -123,9 +124,14 @@ export default function AllClipsScreen({ genre }: Props) {
             return (
               <div key={clip.id} className="bg-[#0f1015] rounded-[1.5rem] p-4 group border border-[#1f2029]">
                 {/* Thumbnail / preview area */}
-                <div className="aspect-video bg-[#1a1b26] rounded-[1rem] relative flex items-center justify-center cursor-pointer overflow-hidden mb-4 border border-[#2a2b36]">
+                <div className="aspect-video rounded-[1rem] relative flex items-center justify-center cursor-pointer overflow-hidden mb-4 border border-[#2a2b36]">
+                  {clip.thumbnail_url
+                    ? <img src={clip.thumbnail_url} alt={label} className="absolute inset-0 w-full h-full object-cover" />
+                    : <div className="absolute inset-0 bg-[#1a1b26]" />
+                  }
+                  <div className="absolute inset-0 bg-black/40" />
                   <div className="absolute top-4 left-4 z-10">
-                    <Badge variant="outline" className={`${tagColor} border px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md bg-black/40`}>
+                    <Badge variant="outline" className={`${tagColor} border px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md bg-black/60`}>
                       {label}
                     </Badge>
                   </div>
@@ -135,10 +141,8 @@ export default function AllClipsScreen({ genre }: Props) {
 
                   {/* Play button / watch dialog */}
                   <Dialog>
-                    <DialogTrigger asChild>
-                      <button className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 hover:bg-white/20 transition-all z-10">
-                        <Play className="w-6 h-6 text-white ml-0.5" />
-                      </button>
+                    <DialogTrigger render={<button className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 hover:bg-white/20 transition-all z-10" />}>
+                      <Play className="w-6 h-6 text-white ml-0.5" />
                     </DialogTrigger>
                     <DialogContent className="max-w-3xl w-full bg-[#141523] border-[#202136] text-white p-0 rounded-2xl overflow-hidden">
                       <div className="p-5 border-b border-[#202136] flex items-center gap-3">
@@ -147,7 +151,7 @@ export default function AllClipsScreen({ genre }: Props) {
                       </div>
                       <div className="aspect-video w-full bg-black">
                         {clip.stream_url
-                          ? <iframe src={clip.stream_url} className="w-full h-full border-none" allow="autoplay; fullscreen" allowFullScreen />
+                          ? <HlsPlayer src={clip.stream_url} className="w-full h-full" autoPlay />
                           : <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">Stream URL not available</div>
                         }
                       </div>

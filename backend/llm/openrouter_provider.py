@@ -142,15 +142,22 @@ class OpenRouterProvider(BaseLLMProvider):
                     response_format=response_format,
                 )
                 if not response.choices:
-                    raise ValueError(
-                        f"LLM returned empty choices (model={self._model})"
-                    )
+                    logger.warning("LLM returned empty choices (model=%s) — retrying", self._model)
+                    last_exc = ValueError(f"LLM returned empty choices (model={self._model})")
+                    time.sleep(2)
+                    continue
                 content = response.choices[0].message.content
                 if content is None:
-                    raise ValueError(
+                    logger.warning(
+                        "LLM returned null content (model=%s, finish_reason=%s) — retrying",
+                        self._model, response.choices[0].finish_reason,
+                    )
+                    last_exc = ValueError(
                         f"LLM returned null content (model={self._model}, "
                         f"finish_reason={response.choices[0].finish_reason})"
                     )
+                    time.sleep(2)
+                    continue
                 content = content.strip()
                 # Strip markdown code fences some models wrap around JSON
                 content = re.sub(r'^```(?:json)?\s*\n?', '', content)

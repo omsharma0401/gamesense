@@ -68,7 +68,7 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
     llm   = get_llm()
 
     # Create and persist the session row
-    session = Session(player_id=body.player_id, genre=body.genre)
+    session = Session(player_id=body.player_id, genre=body.genre, game_name=body.game_name)
     await store.create_session(session)
     _active_session = session
 
@@ -105,6 +105,7 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
     return LiveSessionStatus(
         session_id=session.id,
         genre=session.genre,
+        game_name=session.game_name,
         player_id=session.player_id,
         status="active",
         moments_detected=0,
@@ -172,6 +173,7 @@ async def get_active():
     return LiveSessionStatus(
         session_id=session.id,
         genre=session.genre,
+        game_name=session.game_name,
         player_id=session.player_id,
         status="active",
         moments_detected=moments_detected,
@@ -196,6 +198,7 @@ async def get_session(session_id: str):
     return LiveSessionStatus(
         session_id=session.id,
         genre=session.genre,
+        game_name=session.game_name,
         player_id=session.player_id,
         status=session.status,
         moments_detected=len(moments),

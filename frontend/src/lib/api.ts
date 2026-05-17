@@ -6,6 +6,7 @@ export const DEFAULT_PLAYER_ID = "ash";
 export interface SessionSummary {
   id: string;
   genre: GenreKey;
+  game_name: string | null;
   score: number | null;
   mechanics: number | null;
   decision_making: number | null;
@@ -36,16 +37,43 @@ export interface Clip {
   moment_id: string;
   session_id: string;
   stream_url: string;
+  thumbnail_url: string | null;
   start_time: number;
   end_time: number;
   commentary: string;
   type: string;
 }
 
+export interface Moment {
+  id: string;
+  session_id: string;
+  type: string;
+  timestamp_ms: number;
+  description: string;
+  significance: number;
+  clip_url: string | null;
+  commentary: string | null;
+  created_at: string;
+}
+
+export interface AnalysisResult {
+  session_id: string;
+  score: Score;
+  moments: Moment[];
+  clips: Clip[];
+  patterns: string[];
+  summary: string;
+  epic_summary: string | null;
+  persona: string | null;
+  status: string;
+  created_at: string;
+}
+
 export interface HighlightReel {
   id: string;
   session_id: string;
   stream_url: string | null;
+  vertical_stream_url: string | null;
   duration: number | null;
   status: string;
   created_at: string;
@@ -54,6 +82,7 @@ export interface HighlightReel {
 export interface LiveSessionStatus {
   session_id: string;
   genre: GenreKey;
+  game_name: string | null;
   player_id: string;
   status: string;
   moments_detected: number;
@@ -85,8 +114,9 @@ export const api = {
   getClips: async (sessionId: string): Promise<Clip[]> => {
     try {
       const res = await fetch(`${API_BASE_URL}/clips/${sessionId}`);
-      if (!res.ok) return [];
-      return res.json();
+      if (!res.ok || res.status !== 200) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     } catch (e) {
       return [];
     }
@@ -112,12 +142,34 @@ export const api = {
     }
   },
 
-  startSession: async (genre: GenreKey = "arcade-racing", playerId: string = DEFAULT_PLAYER_ID): Promise<LiveSessionStatus | null> => {
+  startSession: async (genre: GenreKey = "arcade-racing", playerId: string = DEFAULT_PLAYER_ID, gameName?: string | null): Promise<LiveSessionStatus | null> => {
     try {
       const res = await fetch(`${API_BASE_URL}/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ genre, player_id: playerId })
+        body: JSON.stringify({ genre, player_id: playerId, game_name: gameName || null })
+      });
+      if (!res.ok) return null;
+      return res.json();
+    } catch (e) {
+      return null;
+    }
+  },
+
+  getAnalysis: async (sessionId: string): Promise<AnalysisResult | null> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/analysis/${sessionId}`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch (e) {
+      return null;
+    }
+  },
+
+  triggerVerticalHighlight: async (sessionId: string): Promise<HighlightReel | null> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/clips/highlight/${sessionId}/vertical`, {
+        method: 'POST',
       });
       if (!res.ok) return null;
       return res.json();

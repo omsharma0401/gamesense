@@ -1,10 +1,10 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { Play, Sparkles, ArrowUpRight, Film } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import React, { useEffect, useRef, useState } from "react";
+import { Play, Film, Share2, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { api, type HighlightReel, type SessionSummary } from "@/lib/api";
 import { GENRE_CONFIG, type GenreKey } from "@/lib/genres";
+import HlsPlayer from "@/components/ui/HlsPlayer";
 
 interface Props { genre: GenreKey }
 
@@ -21,29 +21,65 @@ const GRADIENTS = [
 ];
 
 export default function HighlightsScreen({ genre }: Props) {
-  const [items, setItems] = useState<ReelWithSession[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems]       = useState<ReelWithSession[]>([]);
+  const [loading, setLoading]   = useState(true);
+  // Reel overrides keyed by session_id — updated by polling
+  const [reelUpdates, setReelUpdates] = useState<Record<string, HighlightReel>>({});
+  // Session IDs whose vertical reel is currently being generated
+  const [verticalProcessing, setVerticalProcessing] = useState<Set<string>>(new Set());
+  const processingRef = useRef<Set<string>>(new Set());
 
   const cfg = GENRE_CONFIG[genre];
 
   useEffect(() => {
     setLoading(true);
+    setReelUpdates({});
+    setVerticalProcessing(new Set());
     async function load() {
       const history = await api.getHistory(undefined, 20);
       const genreHistory = history.filter(h => h.genre === genre);
-
       const results = await Promise.all(
         genreHistory.map(async (s) => {
           const reel = await api.getHighlightReel(s.id);
           return reel ? { reel, session: s } : null;
         })
       );
-
       setItems(results.filter(Boolean) as ReelWithSession[]);
       setLoading(false);
     }
     load();
   }, [genre]);
+
+  // Poll for vertical completion on all currently-processing sessions
+  useEffect(() => {
+    processingRef.current = verticalProcessing;
+    if (verticalProcessing.size === 0) return;
+
+    const interval = setInterval(async () => {
+      const ids = [...processingRef.current];
+      await Promise.all(ids.map(async (sessionId) => {
+        const updated = await api.getHighlightReel(sessionId);
+        if (updated?.vertical_stream_url) {
+          setReelUpdates(prev => ({ ...prev, [sessionId]: updated }));
+          setVerticalProcessing(prev => {
+            const next = new Set(prev);
+            next.delete(sessionId);
+            return next;
+          });
+        }
+      }));
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [verticalProcessing]);
+
+  const handleMakeVertical = async (sessionId: string) => {
+    setVerticalProcessing(prev => new Set([...prev, sessionId]));
+    await api.triggerVerticalHighlight(sessionId);
+  };
+
+  const getEffectiveReel = (reel: HighlightReel, sessionId: string): HighlightReel =>
+    reelUpdates[sessionId] ?? reel;
 
   const formatDur = (sec: number | null) => {
     if (!sec) return "—";
@@ -56,35 +92,16 @@ export default function HighlightsScreen({ genre }: Props) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-2">
         <div>
           <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">Highlight Reels</h2>
-          <p className="text-sm text-gray-400">{cfg.label} · {items.length} reel{items.length !== 1 ? "s" : ""}</p>
+          <p className="text-sm text-gray-400">
+            {cfg.label} · {items.length} reel{items.length !== 1 ? "s" : ""} · Generated automatically after each session
+          </p>
         </div>
       </div>
 
-      {/* Hero CTA */}
-      <div className="bg-black border border-[#27272a] rounded-[2.5rem] p-1 relative overflow-hidden group shadow-2xl">
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-50" />
-        <div className="bg-[#121214] rounded-[2.3rem] p-10 flex flex-col md:flex-row items-center justify-between relative z-10">
-          <div className="mb-6 md:mb-0">
-            <div className="flex items-center gap-2 text-primary font-bold tracking-widest text-xs uppercase mb-3">
-              <Sparkles className="w-4 h-4" /> AI Powered
-            </div>
-            <h3 className="text-3xl font-bold text-white mb-2">Build New Highlight Reel</h3>
-            <p className="text-gray-400 max-w-md leading-relaxed">
-              Let the agent scan your latest {cfg.label} session and compile the most impactful moments automatically.
-            </p>
-          </div>
-          <Button className="h-14 rounded-full px-8 bg-primary hover:bg-primary/90 text-black font-bold shadow-[0_0_30px_rgba(204,255,0,0.25)] text-base group-hover:scale-105 transition-transform">
-            Start Generation <ArrowUpRight className="w-5 h-5 ml-2" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Loading */}
       {loading && (
         <div className="text-gray-500 text-sm py-16 text-center">Loading reels…</div>
       )}
 
-      {/* Empty state */}
       {!loading && items.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
           <Film className="w-12 h-12 text-gray-700" />
@@ -95,55 +112,96 @@ export default function HighlightsScreen({ genre }: Props) {
         </div>
       )}
 
-      {/* Reels grid */}
       {!loading && items.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {items.map(({ reel, session }, i) => (
-            <Dialog key={reel.id}>
-              <div className="group cursor-pointer">
-                <DialogTrigger asChild>
-                  <div className={`aspect-[4/3] rounded-[2rem] bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} border border-[#27272a] group-hover:border-primary/50 transition-all relative flex items-center justify-center overflow-hidden mb-5 shadow-lg`}>
-                    {reel.stream_url ? (
-                      <iframe
-                        src={reel.stream_url}
-                        className="absolute inset-0 w-full h-full z-0 border-none pointer-events-none"
-                        allow="autoplay; fullscreen"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-colors duration-500" />
-                    )}
-                    <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)] transform group-hover:scale-110 transition-transform duration-500 z-10 border border-white/20">
-                      <Play className="w-7 h-7 text-white ml-1" />
-                    </div>
-                    <div className="absolute bottom-4 right-4 bg-black/80 backdrop-blur px-3 py-1.5 rounded-full text-xs font-mono text-white z-10 border border-white/10">
-                      {reel.status === "generating" ? "Generating…" : formatDur(reel.duration)}
-                    </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {items.map(({ reel: originalReel, session }, i) => {
+            const reel       = getEffectiveReel(originalReel, session.id);
+            const processing = verticalProcessing.has(session.id);
+
+            return (
+              <div key={reel.id} className="flex flex-col gap-3">
+                {/* Landscape reel card */}
+                <Dialog>
+                  <div className="group cursor-pointer">
+                    <DialogTrigger render={<div className={`aspect-[4/3] rounded-[2rem] bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} border border-[#27272a] group-hover:border-primary/50 transition-all relative flex items-center justify-center overflow-hidden mb-5 shadow-lg`} />}>
+                        <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors duration-500" />
+                        <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)] transform group-hover:scale-110 transition-transform duration-500 z-10 border border-white/20">
+                          <Play className="w-7 h-7 text-white ml-1" />
+                        </div>
+                        <div className="absolute bottom-4 right-4 bg-black/80 backdrop-blur px-3 py-1.5 rounded-full text-xs font-mono text-white z-10 border border-white/10">
+                          {reel.status === "generating" ? "Generating…" : formatDur(reel.duration)}
+                        </div>
+                    </DialogTrigger>
+
+                    <h3 className="text-white font-semibold text-lg group-hover:text-primary transition-colors px-2">
+                      {session.game_name ?? cfg.label} · Highlight
+                    </h3>
+                    <p className="text-gray-500 text-sm mt-1 px-2">
+                      {new Date(reel.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
                   </div>
-                </DialogTrigger>
 
-                <h3 className="text-white font-semibold text-lg group-hover:text-primary transition-colors px-2">
-                  {cfg.label} · Highlight
-                </h3>
-                <p className="text-gray-500 text-sm mt-1 px-2">
-                  {new Date(reel.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                </p>
+                  <DialogContent className="max-w-3xl w-full bg-[#0d0d0f] border-[#27272a] text-white p-0 rounded-2xl overflow-hidden">
+                    <div className="p-5 border-b border-[#27272a] flex items-center justify-between">
+                      <DialogTitle className="text-white font-semibold">
+                        {session.game_name ?? cfg.label} Highlight Reel
+                        {reel.duration && (
+                          <span className="text-gray-500 text-sm font-normal ml-2">
+                            {Math.floor(reel.duration / 60)}:{Math.floor(reel.duration % 60).toString().padStart(2, "0")}
+                          </span>
+                        )}
+                      </DialogTitle>
+                    </div>
+                    <div className="aspect-video w-full bg-black">
+                      {reel.stream_url
+                        ? <HlsPlayer src={reel.stream_url} className="w-full h-full" autoPlay />
+                        : <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+                            {reel.status === "generating" ? "Generating reel — check back shortly." : "Stream URL not available."}
+                          </div>
+                      }
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Vertical reel actions — only show when landscape reel is complete */}
+                {reel.status === "complete" && (
+                  <div className="px-2">
+                    {reel.vertical_stream_url ? (
+                      /* Watch 9:16 */
+                      <Dialog>
+                        <DialogTrigger render={<button className="flex items-center gap-1.5 text-xs text-primary font-medium hover:underline" />}>
+                          <Share2 className="w-3 h-3" /> Watch 9:16 vertical
+                        </DialogTrigger>
+                        <DialogContent className="max-w-xs w-full bg-[#0d0d0f] border-[#27272a] text-white p-0 rounded-2xl overflow-hidden">
+                          <div className="p-4 border-b border-[#27272a]">
+                            <DialogTitle className="text-white font-semibold text-sm">
+                              {session.game_name ?? cfg.label} · 9:16 Vertical
+                            </DialogTitle>
+                          </div>
+                          <div className="w-full" style={{ aspectRatio: "9/16" }}>
+                            <HlsPlayer src={reel.vertical_stream_url} className="w-full h-full" autoPlay />
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    ) : processing ? (
+                      /* Generating indicator */
+                      <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Reframing to 9:16…
+                      </span>
+                    ) : (
+                      /* Make 9:16 trigger */
+                      <button
+                        onClick={() => handleMakeVertical(session.id)}
+                        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors font-medium"
+                      >
+                        <Share2 className="w-3 h-3" /> Make 9:16 for Reels
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-
-              <DialogContent className="max-w-3xl w-full bg-[#141523] border-[#202136] text-white p-0 rounded-2xl overflow-hidden">
-                <div className="p-5 border-b border-[#202136]">
-                  <DialogTitle className="text-white font-semibold">{cfg.label} Highlight Reel</DialogTitle>
-                </div>
-                <div className="aspect-video w-full bg-black">
-                  {reel.stream_url
-                    ? <iframe src={reel.stream_url} className="w-full h-full border-none" allow="autoplay; fullscreen" allowFullScreen />
-                    : <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
-                        {reel.status === "generating" ? "Generating reel — check back shortly." : "Stream URL not available."}
-                      </div>
-                  }
-                </div>
-              </DialogContent>
-            </Dialog>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

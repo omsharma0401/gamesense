@@ -31,7 +31,7 @@ def _build_episode_summary(session: Session, analysis: AnalysisResult) -> str:
     clutches  = [m for m in analysis.moments if m.type == "clutch"]
 
     return (
-        f"GameSense Session (game={session.game}, player={session.player_id}):\n"
+        f"GameSense Session (genre={session.genre}, player={session.player_id}):\n"
         f"Overall score: {analysis.score.overall}/100 "
         f"(mechanics={analysis.score.mechanics}, "
         f"decision_making={analysis.score.decision_making}, "

@@ -34,7 +34,7 @@ async def get_clips(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         if session.status in ("active", "processing"):
-            raise HTTPException(status_code=202, detail="Analysis still processing")
+            return []   # Still processing — return empty list
         return []   # Analysis failed — return empty list
 
     logger.info("Serving %d clips — session=%s", len(analysis.clips), session_id)
@@ -84,4 +84,33 @@ async def get_highlight(session_id: str):
         raise HTTPException(status_code=404, detail="Highlight reel not generated yet")
 
     logger.info("Serving highlight reel — session=%s status=%s", session_id, reel.status)
+    return reel
+
+
+@router.post("/highlight/{session_id}/vertical", response_model=HighlightReel)
+async def trigger_vertical_highlight(session_id: str, background_tasks: BackgroundTasks):
+    """Trigger 9:16 vertical reframe of the highlight reel (for Reels/TikTok sharing)."""
+    store = get_store()
+    reel  = await store.get_highlight_reel(session_id)
+
+    if not reel or reel.status != "complete":
+        raise HTTPException(status_code=404, detail="Landscape highlight reel not ready yet")
+
+    if reel.vertical_stream_url:
+        logger.info("Vertical highlight already exists — session=%s", session_id)
+        return reel
+
+    session  = await store.get_session(session_id)
+    analysis = await store.get_analysis(session_id)
+    if not session or not analysis:
+        raise HTTPException(status_code=404, detail="Session or analysis not found")
+
+    logger.info("Triggering vertical highlight — session=%s", session_id)
+
+    async def generate():
+        from agents.highlight_agent import HighlightAgent
+        agent = HighlightAgent(session, analysis, store)
+        await agent._generate_vertical(reel, analysis.clips)
+
+    background_tasks.add_task(generate)
     return reel

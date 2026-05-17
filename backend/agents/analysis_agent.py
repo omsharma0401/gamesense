@@ -36,15 +36,22 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-_ANALYSIS_SYSTEM_PROMPT = """You are an expert FPS/competitive gaming coach.
-You have been given the key moments detected during a player's gaming session.
-Analyse their overall performance and provide:
-  - Scores (0-100) for mechanics, decision_making, consistency, and an overall score
-  - A list of specific recurring patterns (not vague — cite concrete behaviours)
-  - A summary paragraph written in second-person coaching voice
+_ANALYSIS_SYSTEM_PROMPT = """You are an elite competitive gaming analyst and coach. You've coached world-class esports teams.
+You analyse a player's session moments and produce a detailed, engaging performance report.
 
-Be honest and specific. Do not inflate scores. A good session is 70+.
+## Scoring Rubric (be honest — do NOT inflate)
+- **Overall 90-100**: Near-flawless. Elite-level play. Once-per-100-sessions kind of session.
+- **Overall 75-89**: Strong session. Clear strengths, small fixable gaps.
+- **Overall 60-74**: Solid but inconsistent. Multiple patterns to address.
+- **Overall 40-59**: Average session. Mixed performance, key mistakes cost rounds.
+- **Overall < 40**: Rough session. Fundamental issues need addressing.
 
+Score each dimension independently:
+- **mechanics**: Execution quality — precision, timing, reaction speed, mechanical skill ceiling
+- **decision_making**: Strategic choices — positioning, risk/reward, rotation timing, game sense
+- **consistency**: Variance across the session — did performance drop in the second half? Were there erratic swings?
+
+## Output Format
 You MUST respond with a JSON object using EXACTLY these field names:
 {
   "score": {
@@ -53,26 +60,39 @@ You MUST respond with a JSON object using EXACTLY these field names:
     "decision_making": integer 0-100,
     "consistency": integer 0-100
   },
-  "patterns": ["specific recurring behaviour 1", "specific recurring behaviour 2"],
-  "summary": "one paragraph coaching summary written in second-person voice"
+  "patterns": [
+    "3-6 hyper-specific recurring patterns. Cite moment types and counts. Be vivid and concrete.",
+    "Example: 'You won 4 out of 5 clutch situations — all when the stakes were highest. Pressure doesn't shake you.'"
+  ],
+  "summary": "One paragraph in second-person coaching voice. Start with the session's defining quality in a punchy sentence. Reference actual moment types. End with the one thing to fix next session.",
+  "epic_summary": "One short punchy headline-style sentence. Spotify Wrapped energy. Example: 'Pure dominance. You owned every late-round fight that mattered.'",
+  "persona": "2-4 word player archetype. Match to dominant pattern. Example: 'The Clutch Artist'"
 }"""
 
 
 def _build_analysis_prompt(session: Session, moments: list[Moment]) -> str:
     moment_lines = "\n".join(
         f"  [{i+1}] [{m.type.upper()}] sig={m.significance}/10 ts={m.timestamp_ms}ms: {m.description}"
+        + (f" | commentary: {m.commentary}" if m.commentary else "")
         for i, m in enumerate(moments)
     )
+    type_counts: dict[str, int] = {}
+    for m in moments:
+        type_counts[m.type] = type_counts.get(m.type, 0) + 1
+    type_summary = ", ".join(f"{v}x {k}" for k, v in sorted(type_counts.items(), key=lambda x: -x[1]))
+
     return f"""Session to analyse:
-Genre: {session.genre}
+Genre: {session.genre}{f" | Game: {session.game_name}" if getattr(session, 'game_name', None) else ""}
 Player: {session.player_id}
 Duration: {_format_duration(session)}
-Total moments detected: {len(moments)}
+Total moments detected: {len(moments)} ({type_summary or "none"})
 
-Key moments (sorted by significance, top {len(moments)} shown):
-{moment_lines}
+Moments (sorted by significance, top {len(moments)} shown):
+{moment_lines if moment_lines else "  No moments detected this session."}
 
-Score this session and provide your coaching analysis."""
+{"NOTE: No moments were detected. This may mean the session was short or uneventful. Score conservatively." if not moments else ""}
+
+Now analyse this session. Be specific about what you observed. Reference moment types in your patterns."""
 
 
 def _format_duration(session: Session) -> str:
@@ -119,14 +139,14 @@ class AnalysisAgent(BaseAgent):
             logger.info("Using top %d moments for LLM analysis", len(moments))
 
             # 3. Score via LLM
-            score, patterns, summary = await self._score_session(moments)
+            score, patterns, summary, epic_summary, persona = await self._score_session(moments)
 
             # 4. Index the exported video for scene search (uses sandbox)
             scene_index_id = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self._ensure_video_indexed(self._session.video_id)
             ) if self._session.video_id else None
 
-            # 5. Compile clips in parallel
+            # 5. Compile clips + thumbnails in parallel
             clips = await self._compile_clips(moments, scene_index_id)
             logger.info("Compiled %d/%d clips successfully", len(clips), len(moments))
 
@@ -138,6 +158,8 @@ class AnalysisAgent(BaseAgent):
                 clips=clips,
                 patterns=patterns,
                 summary=summary,
+                epic_summary=epic_summary,
+                persona=persona,
                 status="complete",
             )
             logger.info(
@@ -196,8 +218,8 @@ class AnalysisAgent(BaseAgent):
 
     async def _score_session(
         self, moments: list[Moment]
-    ) -> tuple[Score, list[str], str]:
-        """Ask the LLM to score the session. Returns (Score, patterns, summary)."""
+    ) -> tuple[Score, list[str], str, str, str]:
+        """Ask the LLM to score the session. Returns (Score, patterns, summary, epic_summary, persona)."""
         logger.info("Requesting LLM session analysis — model=%s", self._llm.model_name)
 
         raw = await asyncio.get_event_loop().run_in_executor(
@@ -222,10 +244,10 @@ class AnalysisAgent(BaseAgent):
             consistency=output.score.consistency,
         )
         logger.info(
-            "LLM scores — overall=%d mechanics=%d decisions=%d consistency=%d",
-            score.overall, score.mechanics, score.decision_making, score.consistency,
+            "LLM scores — overall=%d mechanics=%d decisions=%d consistency=%d persona=%s",
+            score.overall, score.mechanics, score.decision_making, score.consistency, output.persona,
         )
-        return score, output.patterns, output.summary
+        return score, output.patterns, output.summary, output.epic_summary, output.persona
 
     # ── Internal — clip compilation ───────────────────────────────────────────
 
@@ -296,10 +318,17 @@ class AnalysisAgent(BaseAgent):
                 logger.debug("No stream URL returned for moment=%s — skipping", moment.id)
                 return None
 
+            # Generate thumbnail at the clip's mid-point
+            thumbnail_url = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._get_thumbnail(video_id, start_time),
+            )
+
             clip = Clip(
                 moment_id=moment.id,
                 session_id=moment.session_id,
                 stream_url=stream_url,
+                thumbnail_url=thumbnail_url,
                 start_time=start_time,
                 end_time=end_time,
                 commentary=moment.commentary or moment.description,
@@ -315,6 +344,22 @@ class AnalysisAgent(BaseAgent):
             logger.warning(
                 "Clip compilation skipped — moment=%s: %s", moment.id, exc
             )
+            return None
+
+    def _get_thumbnail(self, video_id: str, time: float) -> Optional[str]:
+        """Generate a thumbnail for a video at the given time. Synchronous — runs in executor."""
+        try:
+            import videodb
+            conn  = videodb.connect(api_key=VIDEO_DB_API_KEY)
+            coll  = conn.get_collection()
+            video = coll.get_video(video_id)
+            result = video.generate_thumbnail(time=max(0, int(time)))
+            if isinstance(result, str):
+                return result
+            # Image object — .url is populated for thumbnails per API docs
+            return getattr(result, "url", None) or result.generate_url()
+        except Exception as exc:
+            logger.debug("Thumbnail generation failed for video=%s time=%.1fs: %s", video_id, time, exc)
             return None
 
     def _ensure_video_indexed(self, video_id: str) -> Optional[str]:

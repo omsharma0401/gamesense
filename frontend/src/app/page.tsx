@@ -6,6 +6,7 @@ import AllClipsScreen from "@/components/dashboard/AllClipsScreen";
 import HighlightsScreen from "@/components/dashboard/HighlightsScreen";
 import PerformanceScreen from "@/components/dashboard/PerformanceScreen";
 import RecordsScreen from "@/components/dashboard/RecordsScreen";
+import WrappedScreen from "@/components/dashboard/WrappedScreen";
 import { AnimatePresence, motion } from "framer-motion";
 import type { GenreKey } from "@/lib/genres";
 
@@ -37,6 +38,7 @@ export default function DashboardLayout() {
             {activeTab === "clips"       && <AllClipsScreen genre={genre} />}
             {activeTab === "highlights"  && <HighlightsScreen genre={genre} />}
             {activeTab === "performance" && <PerformanceScreen genre={genre} />}
+            {activeTab === "wrapped"     && <WrappedScreen genre={genre} />}
             {activeTab === "records"     && <RecordsScreen genre={genre} />}
           </motion.div>
         </AnimatePresence>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LayoutDashboard, Film, LineChart, Database, Gamepad2, Circle } from "lucide-react";
+import { LayoutDashboard, Film, LineChart, Database, Gamepad2, Circle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { api, LiveSessionStatus } from "@/lib/api";
@@ -16,6 +16,7 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre }: SidebarPro
   const [activeSession, setActiveSession] = useState<LiveSessionStatus | null>(null);
   const [isToggling, setIsToggling] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [gameName, setGameName] = useState("");
 
   useEffect(() => {
     api.getActiveSession().then(setActiveSession);
@@ -34,7 +35,7 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre }: SidebarPro
         await api.stopSession(activeSession.session_id);
         setActiveSession(null);
       } else {
-        const newSession = await api.startSession(genre);
+        const newSession = await api.startSession(genre, undefined, gameName || null);
         setActiveSession(newSession);
       }
     } finally {
@@ -46,7 +47,8 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre }: SidebarPro
     { id: "clips",       label: "All Clips",    icon: LayoutDashboard },
     { id: "highlights",  label: "Highlights",   icon: Film },
     { id: "performance", label: "Performance",  icon: LineChart },
-    { id: "records",     label: "Last Records", icon: Database },
+    { id: "wrapped",     label: "Session Wrap", icon: Sparkles },
+    { id: "records",     label: "Raw Records",  icon: Database },
   ];
 
   return (
@@ -113,6 +115,26 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre }: SidebarPro
         )}
       </div>
 
+      {/* Game name input */}
+      <div className="mb-6 px-2">
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-widest block mb-2">
+          Game
+        </label>
+        <input
+          type="text"
+          disabled={!!activeSession}
+          value={gameName}
+          onChange={e => setGameName(e.target.value)}
+          placeholder="e.g. Mario Kart 8"
+          className={cn(
+            "w-full h-10 bg-[#121214] border border-[#27272a] rounded-xl text-white px-4 text-sm placeholder:text-gray-600 transition-colors outline-none",
+            activeSession
+              ? "opacity-50 cursor-not-allowed"
+              : "hover:border-[#3f3f46] focus:border-primary/50"
+          )}
+        />
+      </div>
+
       <div className="mb-4 px-2">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Home</span>
       </div>
@@ -170,8 +192,10 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre }: SidebarPro
               </h4>
               <p className="text-xs text-gray-500">
                 {activeSession
-                  ? `${activeSession.moments_detected} moments · ${GENRE_CONFIG[activeSession.genre]?.label ?? activeSession.genre}`
-                  : `${GENRE_CONFIG[genre].label}`}
+                  ? `${activeSession.moments_detected} moments · ${activeSession.game_name ?? GENRE_CONFIG[activeSession.genre]?.label ?? activeSession.genre}`
+                  : gameName
+                    ? `${GENRE_CONFIG[genre].label} · ${gameName}`
+                    : GENRE_CONFIG[genre].label}
               </p>
             </div>
           </div>
