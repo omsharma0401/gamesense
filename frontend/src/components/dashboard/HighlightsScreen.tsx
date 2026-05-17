@@ -1,14 +1,42 @@
 import React from "react";
 import { Play, Sparkles, Share2, Download, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
+import { api } from "@/lib/api";
 export default function HighlightsScreen() {
-  const highlights = [
-    { id: 1, title: "Match 047 • Story cut", time: "just now", duration: "1:24", gradient: "from-[#a855f7]/40 to-black" },
-    { id: 2, title: "Week of May 11 • Best", time: "2 days ago", duration: "2:08", gradient: "from-primary/30 to-black" },
-    { id: 3, title: "Blunders compilation", time: "5 days ago", duration: "1:46", gradient: "from-red-500/30 to-black" },
-    { id: 4, title: "Aim only • 30s loop", time: "a week ago", duration: "0:30", gradient: "from-blue-500/30 to-black" },
-  ];
+  const [highlights, setHighlights] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    async function loadHighlights() {
+      const history = await api.getHistory();
+      const recent = history.slice(0, 4); // get up to 4
+      
+      const reelsData = await Promise.all(
+        recent.map(s => api.getHighlightReel(s.id))
+      );
+      
+      const mapped = reelsData
+        .map((r, i) => {
+          if (!r) return null;
+          const s = recent[i];
+          const dur = r.duration || 0;
+          const mins = Math.floor(dur / 60);
+          const secs = Math.floor(dur % 60);
+          const gradients = ["from-[#a855f7]/40 to-black", "from-primary/30 to-black", "from-red-500/30 to-black", "from-blue-500/30 to-black"];
+          return {
+            id: r.id,
+            title: `${s.game} • Highlight`,
+            time: new Date(r.created_at).toLocaleDateString(),
+            duration: `${mins}:${secs.toString().padStart(2, '0')}`,
+            gradient: gradients[i % gradients.length],
+            stream_url: r.stream_url
+          };
+        })
+        .filter(Boolean);
+        
+      setHighlights(mapped as any[]);
+    }
+    loadHighlights();
+  }, []);
 
   return (
     <div className="w-full space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -56,7 +84,11 @@ export default function HighlightsScreen() {
         {highlights.map((reel) => (
           <div key={reel.id} className="group cursor-pointer">
             <div className={`aspect-[4/3] rounded-[2rem] bg-gradient-to-br ${reel.gradient} border border-[#27272a] group-hover:border-primary/50 transition-all relative flex items-center justify-center overflow-hidden mb-5 shadow-lg`}>
-              <div className="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-colors duration-500" />
+              {reel.stream_url ? (
+                <iframe src={reel.stream_url} className="absolute inset-0 w-full h-full z-0 border-none pointer-events-none" allow="autoplay; fullscreen" />
+              ) : (
+                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-colors duration-500" />
+              )}
               
               <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)] transform group-hover:scale-110 transition-transform duration-500 z-10 border border-white/20">
                 <Play className="w-7 h-7 text-white ml-1" />

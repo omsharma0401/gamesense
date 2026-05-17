@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
 
 const CLIPS_DATA = {
   "asphalt-9": [
@@ -23,7 +24,50 @@ const CLIPS_DATA = {
 
 export default function AllClipsScreen() {
   const [game, setGame] = useState("asphalt-9");
-  const clips = CLIPS_DATA[game as keyof typeof CLIPS_DATA];
+  const [clips, setClips] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    async function loadClips() {
+      const history = await api.getHistory();
+      const gameHistory = history.filter(h => h.game.toLowerCase().includes(game.replace("-", " ")));
+      if (gameHistory.length > 0) {
+        const latestSessionId = gameHistory[gameHistory.length - 1].id;
+        const bClips = await api.getClips(latestSessionId);
+        
+        const mapped = bClips.map((c) => {
+          const dur = Math.max(0, c.end_time - c.start_time);
+          const mins = Math.floor(dur / 60);
+          const secs = Math.floor(dur % 60);
+          
+          let skillPts = 10;
+          let tagColor = "text-primary border-primary/30";
+          if (c.type === "blunder" || c.type === "error" || c.type === "death") {
+             skillPts = -10;
+             tagColor = "text-destructive border-destructive/30";
+          } else if (c.type === "clutch") {
+             skillPts = 20;
+             tagColor = "text-white border-white/20";
+          }
+          
+          return {
+            id: c.id,
+            title: `Moment: ${c.type.toUpperCase()}`,
+            duration: `${mins}:${secs.toString().padStart(2, '0')}`,
+            skillPts,
+            tag: c.type.toUpperCase(),
+            tagColor,
+            time: `00:${Math.floor(c.start_time).toString().padStart(2, '0')} - ${dur.toFixed(0)}s`,
+            desc: c.commentary || "Detected by GameSense AI",
+            stream_url: c.stream_url
+          };
+        });
+        setClips(mapped);
+      } else {
+        setClips([]);
+      }
+    }
+    loadClips();
+  }, [game]);
 
   return (
     <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -111,13 +155,20 @@ export default function AllClipsScreen() {
                     {/* Left Column */}
                     <div className="w-[400px] shrink-0 p-6 pr-4 flex flex-col gap-6 overflow-y-auto">
                       {/* Video Preview */}
-                      <div className="aspect-[16/10] bg-[#0c0d16] rounded-xl border border-[#202136] p-4 flex flex-col justify-end relative overflow-hidden">
-                         <div className="absolute top-3 left-3 bg-red-500/10 text-red-400 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5">
+                      <div className="aspect-[16/10] bg-[#0c0d16] rounded-xl border border-[#202136] p-0 flex flex-col justify-end relative overflow-hidden group/preview">
+                         {clip.stream_url ? (
+                           <iframe src={clip.stream_url} className="w-full h-full border-none" allow="autoplay; fullscreen" />
+                         ) : (
+                           <div className="absolute inset-0 flex items-center justify-center text-gray-500">No Stream URL</div>
+                         )}
+                         <div className="absolute top-3 left-3 bg-red-500/10 text-red-400 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5 pointer-events-none">
                            <div className="w-2 h-2 bg-red-500 rounded-sm"></div>
                            1080p • 16:9
                          </div>
-                         <h4 className="text-xl font-bold text-white mb-1 leading-tight">{clip.title}</h4>
-                         <p className="text-xs text-gray-400 font-mono">{clip.duration} • Highlight reel</p>
+                         <div className="absolute bottom-4 left-4 pointer-events-none">
+                           <h4 className="text-xl font-bold text-white mb-1 leading-tight drop-shadow-md">{clip.title}</h4>
+                           <p className="text-xs text-gray-300 font-mono drop-shadow-md">{clip.duration} • Highlight reel</p>
+                         </div>
                       </div>
 
                       {/* AI Suggestions */}

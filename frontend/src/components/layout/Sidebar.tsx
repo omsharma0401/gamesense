@@ -1,8 +1,9 @@
-import React from "react";
-import { LayoutDashboard, Film, LineChart, Database, Gamepad2, Plus, Zap } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { LayoutDashboard, Film, LineChart, Database, Gamepad2, Plus, Zap, Circle } from "lucide-react";
 import { HugeIcon } from "hugeicons-react"; // I'll use Lucide mostly for consistency but add a few HugeIcons if needed
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { api, LiveSessionStatus } from "@/lib/api";
 
 interface SidebarProps {
   activeTab: string;
@@ -10,6 +11,37 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
+  const [activeSession, setActiveSession] = useState<LiveSessionStatus | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
+
+  useEffect(() => {
+    // Initial fetch
+    api.getActiveSession().then(setActiveSession);
+    
+    // Poll every 2 seconds
+    const interval = setInterval(async () => {
+      const session = await api.getActiveSession();
+      setActiveSession(session);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRecordToggle = async () => {
+    if (isToggling) return;
+    setIsToggling(true);
+    try {
+      if (activeSession) {
+        await api.stopSession(activeSession.session_id);
+        setActiveSession(null);
+      } else {
+        const newSession = await api.startSession();
+        setActiveSession(newSession);
+      }
+    } finally {
+      setIsToggling(false);
+    }
+  };
+
   const menuItems = [
     { id: "clips", label: "All Clips", icon: LayoutDashboard },
     { id: "highlights", label: "Highlights", icon: Film },
@@ -68,7 +100,33 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       </nav>
 
       <div className="w-full px-2 mt-auto space-y-4">
-        <div className="flex items-center justify-between text-gray-400 mb-2 px-2">
+        <button 
+          onClick={handleRecordToggle}
+          disabled={isToggling}
+          className={cn(
+            "w-full p-4 rounded-2xl border transition-all flex items-center justify-between group cursor-pointer",
+            activeSession 
+              ? "bg-red-500/10 border-red-500/50 hover:bg-red-500/20" 
+              : "bg-[#121214] border-[#27272a] hover:border-primary/50 hover:bg-[#1a1a1f]"
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <Circle className={cn(
+              "w-5 h-5", 
+              activeSession ? "text-red-500 animate-pulse fill-red-500" : "text-gray-400 group-hover:text-primary"
+            )} />
+            <div className="text-left">
+              <h4 className={cn("text-sm font-semibold", activeSession ? "text-red-500" : "text-white")}>
+                {activeSession ? "Recording..." : "Start Recording"}
+              </h4>
+              <p className="text-xs text-gray-500">
+                {activeSession ? `${activeSession.moments_detected} moments` : "Capture gameplay"}
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <div className="flex items-center justify-between text-gray-400 mb-2 px-2 mt-6">
           <span className="text-xs font-semibold uppercase tracking-widest">Upgrades</span>
           <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center cursor-pointer hover:scale-110 transition-transform">
             <Plus className="w-4 h-4 text-black" strokeWidth={3} />

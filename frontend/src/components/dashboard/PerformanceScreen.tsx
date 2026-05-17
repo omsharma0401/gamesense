@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { HugeIcon } from "hugeicons-react";
 import { Zap, Target, TrendingUp, Crosshair, ChevronDown, Award } from "lucide-react";
 import { motion } from "framer-motion";
+import { api, SessionSummary, Briefing } from "@/lib/api";
 
 const GAME_DATA = {
   "asphalt-9": {
@@ -37,7 +38,36 @@ const GAME_DATA = {
 
 export default function PerformanceScreen() {
   const [game, setGame] = useState("asphalt-9");
-  const data = GAME_DATA[game as keyof typeof GAME_DATA];
+  const [history, setHistory] = React.useState<SessionSummary[]>([]);
+  const [briefing, setBriefing] = React.useState<Briefing | null>(null);
+
+  React.useEffect(() => {
+    async function loadData() {
+      const [histData, briefData] = await Promise.all([
+        api.getHistory(),
+        api.getBriefing()
+      ]);
+      setHistory(histData.reverse()); // Oldest first
+      setBriefing(briefData);
+    }
+    loadData();
+  }, []);
+
+  const gameHistory = history.filter(h => h.game.toLowerCase().includes(game.replace("-", " ")));
+  const latestSession = gameHistory.length > 0 ? gameHistory[gameHistory.length - 1] : null;
+
+  const data = {
+    name: game === "asphalt-9" ? "Asphalt 9" : "Mortal Kombat Arena",
+    tags: briefing?.focus_areas?.length ? briefing.focus_areas : GAME_DATA[game as keyof typeof GAME_DATA].tags,
+    summary: GAME_DATA[game as keyof typeof GAME_DATA].summary,
+    detailedOverview: briefing?.coaching_paragraph || GAME_DATA[game as keyof typeof GAME_DATA].detailedOverview,
+    score: latestSession?.score?.toString() || GAME_DATA[game as keyof typeof GAME_DATA].score,
+    scoreChange: "+12%", // Hardcoded for now
+    chartData: gameHistory.length > 0 
+      ? gameHistory.map((s, i) => ({ time: `S${i+1}`, score: s.score || 0 }))
+      : GAME_DATA[game as keyof typeof GAME_DATA].chartData,
+    color: GAME_DATA[game as keyof typeof GAME_DATA].color
+  };
 
   return (
     <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
