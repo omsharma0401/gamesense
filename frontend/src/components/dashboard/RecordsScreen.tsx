@@ -2,14 +2,43 @@ import React from "react";
 import { HardDrive, PlayCircle, MoreVertical, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
+import { api, SessionSummary } from "@/lib/api";
 export default function RecordsScreen() {
-  const records = [
-    { id: 1, title: "Session_20260517_001.mp4", game: "Mortal Kombat Arena", duration: "45:20", date: "Today, 14:30", size: "2.4 GB", status: "Analyzed" },
-    { id: 2, title: "Session_20260516_004.mp4", game: "Asphalt 9", duration: "1:12:05", date: "Yesterday, 19:45", size: "3.8 GB", status: "Analyzed" },
-    { id: 3, title: "Session_20260515_002.mp4", game: "Mortal Kombat Arena", duration: "22:10", date: "May 15, 2026", size: "1.1 GB", status: "Analyzed" },
-    { id: 4, title: "Session_20260514_001.mp4", game: "Asphalt 9", duration: "58:30", date: "May 14, 2026", size: "3.1 GB", status: "Analyzed" },
-    { id: 5, title: "Session_20260510_003.mp4", game: "Unknown Game", duration: "15:45", date: "May 10, 2026", size: "850 MB", status: "Pending" },
+  const [history, setHistory] = React.useState<SessionSummary[]>([]);
+
+  React.useEffect(() => {
+    async function loadData() {
+      const histData = await api.getHistory();
+      setHistory(histData);
+    }
+    loadData();
+  }, []);
+
+  const formatDuration = (start: string, end: string | null) => {
+    if (!end) return "Live";
+    const ms = new Date(end).getTime() - new Date(start).getTime();
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  };
+
+  const records = history.length > 0 ? history.map((s, i) => ({
+    id: s.id,
+    title: `Session_${s.id.substring(0, 8)}.mp4`,
+    game: s.game,
+    duration: formatDuration(s.started_at, s.ended_at),
+    date: formatDate(s.started_at),
+    size: `${(Math.random() * 2 + 1).toFixed(1)} GB`, // Mock size since not in API
+    status: s.ended_at ? "Analyzed" : "Pending"
+  })) : [
+    // Fallback if no history
+    { id: 'mock-1', title: "Waiting for sessions...", game: "-", duration: "-", date: "-", size: "-", status: "Pending" }
   ];
 
   return (
