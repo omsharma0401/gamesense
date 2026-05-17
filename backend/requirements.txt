@@ -1,0 +1,32 @@
+# VideoDB — hackathon branch (required, not on PyPI)
+git+https://github.com/Video-DB/videodb-python.git@hackathon
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Config
+python-dotenv
+
+# LLM providers (OpenAI-compatible SDK works for both OpenRouter and Groq)
+openai
+
+# Memory — temporal knowledge graph
+graphiti-core[kuzu]
+
+# Memory — async SQLite
+aiosqlite
+
+# HTTP client (for Discord webhook + async requests)
+httpx
+
+# Validation
+pydantic>=2.0
+
+# Testing
+pytest
+pytest-asyncio
+httpx  # also used as async test client
+
+# WebSocket client for ws_listener
+websockets
