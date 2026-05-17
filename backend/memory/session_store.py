@@ -65,7 +65,7 @@ class SQLiteSessionStore(BaseSessionStore):
             CREATE TABLE IF NOT EXISTS sessions (
                 id              TEXT PRIMARY KEY,
                 player_id       TEXT NOT NULL,
-                game            TEXT NOT NULL,
+                genre           TEXT NOT NULL,
                 status          TEXT NOT NULL DEFAULT 'active',
                 video_id        TEXT,
                 rtstream_id     TEXT,
@@ -123,16 +123,16 @@ class SQLiteSessionStore(BaseSessionStore):
     # ── Session CRUD ──────────────────────────────────────────────────────────
 
     async def create_session(self, session: Session) -> None:
-        logger.info("Creating session row — id=%s game=%s", session.id, session.game)
+        logger.info("Creating session row — id=%s genre=%s", session.id, session.genre)
         async with _write_lock:
             assert self._conn
             await self._conn.execute(
                 """INSERT INTO sessions
-                   (id, player_id, game, status, video_id, rtstream_id,
+                   (id, player_id, genre, status, video_id, rtstream_id,
                     moments_detected, started_at, ended_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    session.id, session.player_id, session.game, session.status,
+                    session.id, session.player_id, session.genre, session.status,
                     session.video_id, session.rtstream_id,
                     session.moments_detected,
                     session.started_at.isoformat(),
@@ -193,7 +193,7 @@ class SQLiteSessionStore(BaseSessionStore):
     ) -> list[SessionSummary]:
         assert self._conn
         async with self._conn.execute(
-            """SELECT id, game, score_overall, score_mechanics, score_decision,
+            """SELECT id, genre, score_overall, score_mechanics, score_decision,
                       score_consistency, moments_detected, started_at, ended_at
                FROM sessions
                WHERE player_id = ? AND status != 'active'
@@ -206,7 +206,7 @@ class SQLiteSessionStore(BaseSessionStore):
         summaries = [
             SessionSummary(
                 id=r["id"],
-                game=r["game"],
+                genre=r["genre"],
                 score=r["score_overall"],
                 mechanics=r["score_mechanics"],
                 decision_making=r["score_decision"],
@@ -362,7 +362,7 @@ class SQLiteSessionStore(BaseSessionStore):
         return Session(
             id=row["id"],
             player_id=row["player_id"],
-            game=row["game"],
+            genre=row["genre"],
             status=row["status"],
             video_id=row["video_id"],
             rtstream_id=row["rtstream_id"],

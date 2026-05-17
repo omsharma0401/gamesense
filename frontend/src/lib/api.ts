@@ -1,9 +1,11 @@
+import type { GenreKey } from "./genres";
+
 export const API_BASE_URL = "http://localhost:8000";
-export const DEFAULT_PLAYER_ID = "player-001";
+export const DEFAULT_PLAYER_ID = "ash";
 
 export interface SessionSummary {
   id: string;
-  game: string;
+  genre: GenreKey;
   score: number | null;
   mechanics: number | null;
   decision_making: number | null;
@@ -51,7 +53,7 @@ export interface HighlightReel {
 
 export interface LiveSessionStatus {
   session_id: string;
-  game: string;
+  genre: GenreKey;
   player_id: string;
   status: string;
   moments_detected: number;
@@ -110,12 +112,12 @@ export const api = {
     }
   },
 
-  startSession: async (game: string = "Asphalt 9", playerId: string = DEFAULT_PLAYER_ID): Promise<LiveSessionStatus | null> => {
+  startSession: async (genre: GenreKey = "arcade-racing", playerId: string = DEFAULT_PLAYER_ID): Promise<LiveSessionStatus | null> => {
     try {
       const res = await fetch(`${API_BASE_URL}/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game, player_id: playerId })
+        body: JSON.stringify({ genre, player_id: playerId })
       });
       if (!res.ok) return null;
       return res.json();

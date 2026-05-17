@@ -1,65 +1,49 @@
-import React from "react";
-import { HardDrive, PlayCircle, MoreVertical, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
+"use client";
+import React, { useEffect, useState } from "react";
+import { HardDrive, PlayCircle, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { api, SessionSummary } from "@/lib/api";
-export default function RecordsScreen() {
-  const [history, setHistory] = React.useState<SessionSummary[]>([]);
+import { api, type SessionSummary } from "@/lib/api";
+import { GENRE_CONFIG, type GenreKey } from "@/lib/genres";
 
-  React.useEffect(() => {
-    async function loadData() {
-      const histData = await api.getHistory();
-      setHistory(histData);
-    }
-    loadData();
-  }, []);
+interface Props { genre: GenreKey }
+
+export default function RecordsScreen({ genre }: Props) {
+  const [history, setHistory] = useState<SessionSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.getHistory(undefined, 50).then(h => {
+      setHistory(h.filter(s => s.genre === genre));
+      setLoading(false);
+    });
+  }, [genre]);
 
   const formatDuration = (start: string, end: string | null) => {
     if (!end) return "Live";
-    const ms = new Date(end).getTime() - new Date(start).getTime();
+    const ms   = new Date(end).getTime() - new Date(start).getTime();
     const mins = Math.floor(ms / 60000);
     const secs = Math.floor((ms % 60000) / 1000);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-  };
+  const formatDate = (d: string) =>
+    new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-  const records = history.length > 0 ? history.map((s, i) => ({
-    id: s.id,
-    title: `Session_${s.id.substring(0, 8)}.mp4`,
-    game: s.game,
-    duration: formatDuration(s.started_at, s.ended_at),
-    date: formatDate(s.started_at),
-    size: `${(Math.random() * 2 + 1).toFixed(1)} GB`, // Mock size since not in API
-    status: s.ended_at ? "Analyzed" : "Pending"
-  })) : [
-    // Fallback if no history
-    { id: 'mock-1', title: "Waiting for sessions...", game: "-", duration: "-", date: "-", size: "-", status: "Pending" }
-  ];
+  const cfg = GENRE_CONFIG[genre];
 
   return (
     <div className="w-full space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-2">
         <div>
-          <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">
-            Raw Recordings
-          </h2>
-          <div className="flex items-center gap-3 text-sm text-gray-400">
-            <span>Storage &gt;</span>
-            <span className="text-gray-500">Local captures</span>
-          </div>
+          <h2 className="text-4xl font-semibold tracking-tight text-white mb-2">Raw Recordings</h2>
+          <p className="text-sm text-gray-400">{cfg.label} · {history.length} session{history.length !== 1 ? "s" : ""}</p>
         </div>
 
-        <div className="flex gap-4">
-          <div className="flex items-center gap-3 bg-black border border-[#27272a] rounded-full px-6 py-3 text-sm text-gray-200 shadow-lg">
-            <HardDrive className="w-4 h-4 text-primary" />
-            <span className="font-semibold text-white">11.25 GB</span> used of 50 GB
-          </div>
+        <div className="flex items-center gap-3 bg-black border border-[#27272a] rounded-full px-6 py-3 text-sm text-gray-200 shadow-lg">
+          <HardDrive className="w-4 h-4 text-primary" />
+          <span className="font-semibold text-white">{history.length}</span> session{history.length !== 1 ? "s" : ""} stored
         </div>
       </div>
 
@@ -68,46 +52,61 @@ export default function RecordsScreen() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-[#27272a] bg-[#1a1a1f] text-gray-400 text-xs uppercase tracking-widest">
-                <th className="p-6 font-semibold rounded-tl-3xl">File Name</th>
-                <th className="p-6 font-semibold">Game Detected</th>
+                <th className="p-6 font-semibold rounded-tl-3xl">Session</th>
+                <th className="p-6 font-semibold">Genre</th>
+                <th className="p-6 font-semibold">Score</th>
+                <th className="p-6 font-semibold">Moments</th>
                 <th className="p-6 font-semibold">Duration</th>
-                <th className="p-6 font-semibold">Date Recorded</th>
-                <th className="p-6 font-semibold">Size</th>
-                <th className="p-6 text-right rounded-tr-3xl">Actions</th>
+                <th className="p-6 font-semibold rounded-tr-3xl">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#27272a]">
-              {records.map((record) => (
-                <tr key={record.id} className="hover:bg-[#1f1f24] transition-colors group">
-                  <td className="p-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-[#09090b] flex items-center justify-center border border-[#27272a] group-hover:border-primary/50 transition-colors shadow-inner">
-                        <PlayCircle className="w-6 h-6 text-gray-400 group-hover:text-primary transition-colors" />
-                      </div>
-                      <div>
-                        <span className="text-gray-200 font-medium block">{record.title}</span>
-                        <span className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className={`px-2 py-0 border-transparent text-[10px] ${record.status === 'Analyzed' ? 'bg-primary/10 text-primary' : 'bg-gray-800 text-gray-400'}`}>
-                            {record.status}
-                          </Badge>
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-6 text-gray-400 text-sm font-medium">{record.game}</td>
-                  <td className="p-6 text-gray-300 font-mono text-sm">{record.duration}</td>
-                  <td className="p-6 text-gray-400 text-sm flex items-center gap-2 h-full py-9">
-                    <Calendar className="w-4 h-4 opacity-50 text-gray-500" />
-                    {record.date}
-                  </td>
-                  <td className="p-6 text-gray-400 text-sm font-mono">{record.size}</td>
-                  <td className="p-6 text-right">
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-white hover:bg-[#27272a] rounded-full">
-                      <MoreVertical className="w-5 h-5" />
-                    </Button>
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center text-gray-600 text-sm">Loading…</td>
+                </tr>
+              )}
+              {!loading && history.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center text-gray-600 text-sm">
+                    No {cfg.label} sessions recorded yet.
                   </td>
                 </tr>
-              ))}
+              )}
+              {!loading && history.map((s) => {
+                const statusLabel = s.ended_at ? (s.score !== null ? "Analyzed" : "Processing") : "Live";
+                const statusStyle = statusLabel === "Analyzed"
+                  ? "bg-primary/10 text-primary"
+                  : statusLabel === "Live"
+                    ? "bg-red-500/10 text-red-400"
+                    : "bg-gray-800 text-gray-400";
+
+                return (
+                  <tr key={s.id} className="hover:bg-[#1f1f24] transition-colors group">
+                    <td className="p-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-[#09090b] flex items-center justify-center border border-[#27272a] group-hover:border-primary/50 transition-colors shadow-inner">
+                          <PlayCircle className="w-6 h-6 text-gray-400 group-hover:text-primary transition-colors" />
+                        </div>
+                        <div>
+                          <span className="text-gray-200 font-medium block font-mono text-sm">{s.id.substring(0, 8)}…</span>
+                          <Badge variant="outline" className={`px-2 py-0 border-transparent text-[10px] mt-1 ${statusStyle}`}>
+                            {statusLabel}
+                          </Badge>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-6 text-gray-400 text-sm">{cfg.label}</td>
+                    <td className="p-6 text-gray-300 font-mono text-sm">{s.score ?? "—"}</td>
+                    <td className="p-6 text-gray-400 text-sm">{s.moments_detected}</td>
+                    <td className="p-6 text-gray-300 font-mono text-sm">{formatDuration(s.started_at, s.ended_at ?? null)}</td>
+                    <td className="p-6 text-gray-400 text-sm flex items-center gap-2 h-full py-9">
+                      <Calendar className="w-4 h-4 opacity-50 text-gray-500" />
+                      {formatDate(s.started_at)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

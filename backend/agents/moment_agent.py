@@ -34,15 +34,59 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-_MOMENT_SYSTEM_PROMPT = """You are an AI gaming coach watching live gameplay events.
+_GENRE_CONTEXT = {
+    "arcade-racing": (
+        "This is an Arcade Racing game. "
+        "Use `highlight` for clean overtakes or best laps, `clutch` for last-second recoveries or close finishes, "
+        "`kill` for a dominant overtake, `death` for crashing or being passed badly, "
+        "`error` for missed corners or poor lines, `strategy_break` for unexpected route/pit changes, "
+        "`blunder` for major crashes or race-ending mistakes."
+    ),
+    "tactical-shooter": (
+        "This is a Tactical Shooter (FPS). "
+        "Use `kill` for frags/eliminations, `death` for the player dying, "
+        "`clutch` for 1vN situations or low-HP recoveries, `error` for poor positioning or missed shots, "
+        "`strategy_break` for mid-round strategy pivots, `highlight` for exceptional mechanical plays, "
+        "`blunder` for team kills, throwing plays, or catastrophic mistakes."
+    ),
+    "rts": (
+        "This is a Real-Time Strategy game. "
+        "Use `kill` for successful unit trades or army wipes, `death` for losing a base or major army, "
+        "`clutch` for clutch defenses under pressure, `error` for supply blocks or eco mistakes, "
+        "`strategy_break` for tech switches or unexpected build orders, `highlight` for decisive battles, "
+        "`blunder` for major strategic blunders."
+    ),
+    "turn-based-tactics": (
+        "This is a Turn-Based Tactics game. "
+        "Use `kill` for eliminating enemy units, `death` for losing a unit, "
+        "`clutch` for winning against the odds in a single turn, `error` for tactical mistakes or wasted turns, "
+        "`strategy_break` for unexpected strategy pivots, `highlight` for perfectly executed turns, "
+        "`blunder` for friendly fire or catastrophic positioning errors."
+    ),
+}
+
+_MOMENT_BASE_PROMPT = """You are an AI gaming coach watching live gameplay events.
 Each event is a timestamped description of what the AI vision model saw on screen.
 
 Your job: decide if the last batch of events contains a genuinely significant game moment.
 Be selective — only tag events that a highlight reel editor would care about.
 Filter out: loading screens, menus, spectator cam, idle periods, and minor events.
-Do NOT tag every kill. Only tag kills that are mechanically impressive or strategically decisive.
 
-Return valid JSON matching the schema exactly."""
+You MUST respond with a JSON object using EXACTLY these field names:
+{{
+  "is_moment": true or false,
+  "type": one of "kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder", or "none",
+  "description": "brief description of what happened",
+  "significance": integer 0-10 (0 if is_moment is false),
+  "timestamp_ms": integer unix timestamp in milliseconds ({ts_note}),
+  "commentary": "coaching insight or highlight reel commentary"
+}}"""
+
+
+def _build_system_prompt(genre: str) -> str:
+    genre_ctx = _GENRE_CONTEXT.get(genre, "")
+    ts_note = "absolute unix timestamp from the event, 0 if is_moment is false"
+    return f"{genre_ctx}\n\n{_MOMENT_BASE_PROMPT.format(ts_note=ts_note)}"
 
 
 def _build_moment_prompt(events: list[dict]) -> str:
@@ -80,20 +124,23 @@ class MomentAgent(BaseAgent):
     def __init__(
         self,
         session_id: str,
+        genre: str,
         llm: BaseLLMProvider,
         store: BaseSessionStore,
         poll_interval: int = MOMENT_POLL_INTERVAL,
     ):
         self._session_id    = session_id
+        self._genre         = genre
         self._llm           = llm
         self._store         = store
         self._poll_interval = poll_interval
         self._running       = False
         self._last_offset   = 0       # byte offset — reads only new lines
         self._moments_detected = 0
+        self._system_prompt = _build_system_prompt(genre)
 
         logger.info(
-            "MomentAgent created — session=%s poll=%ds", session_id, poll_interval
+            "MomentAgent created — session=%s genre=%s poll=%ds", session_id, genre, poll_interval
         )
 
     @property
@@ -162,7 +209,7 @@ class MomentAgent(BaseAgent):
         raw = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._llm.complete_structured(
-                system=_MOMENT_SYSTEM_PROMPT,
+                system=self._system_prompt,
                 user=_build_moment_prompt(context),
                 schema_name="moment_detection",
             ),

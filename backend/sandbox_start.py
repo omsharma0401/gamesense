@@ -47,11 +47,8 @@ def main() -> None:
     logger.info("Connecting to VideoDB…")
     conn = videodb.connect(api_key=api_key)
 
-    logger.info("Creating sandbox (tier=medium, idle_timeout=600s)…")
-    sandbox = conn.create_sandbox(
-        tier=SandboxTier.medium,
-        idle_timeout=600,  # auto-stop after 10 min idle
-    )
+    logger.info("Creating sandbox (tier=medium)…")
+    sandbox = conn.create_sandbox(tier=SandboxTier.medium)
     logger.info("Sandbox created — id=%s status=%s", sandbox.id, sandbox.status)
 
     logger.info("Waiting for sandbox to become active (timeout=300s)…")

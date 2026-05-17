@@ -11,6 +11,7 @@ Includes exponential-backoff retry for transient rate limit errors.
 """
 import json
 import logging
+import re
 import time
 
 from openai import OpenAI, APIError, RateLimitError, APITimeoutError
@@ -27,7 +28,7 @@ from config import (
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES   = 6
-_RETRY_BACKOFF = 5.0   # seconds — free-tier models rate-limit aggressively
+_RETRY_BACKOFF = 30.0  # seconds — free-tier models enforce ~30s rate-limit windows
 
 
 # ── JSON Schemas for structured output calls ──────────────────────────────────
@@ -108,6 +109,7 @@ class OpenRouterProvider(BaseLLMProvider):
         self._client = OpenAI(
             api_key=OPENROUTER_API_KEY,
             base_url=OPENROUTER_BASE_URL,
+            timeout=30.0,   # fail fast — free-tier queue hangs indefinitely without this
         )
         self._model = model or OPENROUTER_MODEL
         logger.info("OpenRouterProvider initialised — model=%s", self._model)
@@ -139,7 +141,48 @@ class OpenRouterProvider(BaseLLMProvider):
                     max_tokens=LLM_MAX_TOKENS,
                     response_format=response_format,
                 )
-                content = response.choices[0].message.content.strip()
+                if not response.choices:
+                    raise ValueError(
+                        f"LLM returned empty choices (model={self._model})"
+                    )
+                content = response.choices[0].message.content
+                if content is None:
+                    raise ValueError(
+                        f"LLM returned null content (model={self._model}, "
+                        f"finish_reason={response.choices[0].finish_reason})"
+                    )
+                content = content.strip()
+                # Strip markdown code fences some models wrap around JSON
+                content = re.sub(r'^```(?:json)?\s*\n?', '', content)
+                content = re.sub(r'\n?```\s*$', '', content).strip()
+                # Normalise common LLM output defects before repair:
+                import json as _json
+                # Strip non-printable control chars (keep \t \n \r)
+                content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content)
+                try:
+                    _json.loads(content)  # fast-path — already valid
+                except Exception:
+                    # 1. Strip leading garbage before the first { or [
+                    brace = min(
+                        (content.find(c) for c in ('{', '[') if c in content),
+                        default=-1,
+                    )
+                    if brace > 0:
+                        content = content[brace:]
+                    # 2. Unescape double-encoded output (\n, \", \t as literal chars)
+                    if '\\"' in content or '\\n' in content:
+                        content = (
+                            content
+                            .replace('\\n', '\n')
+                            .replace('\\t', '\t')
+                            .replace('\\"', '"')
+                        )
+                # Repair remaining malformed JSON (single quotes, trailing commas, etc.)
+                try:
+                    from json_repair import repair_json
+                    content = repair_json(content, return_objects=False)
+                except Exception:
+                    pass
                 logger.debug(
                     "LLM response received — tokens_used=%s",
                     getattr(response.usage, "total_tokens", "unknown"),

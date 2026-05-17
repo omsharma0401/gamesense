@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # Load .env from this directory
 _ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(_ENV_PATH)
+load_dotenv(_ENV_PATH, override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b")
 LLM_TEMPERATURE     = 0.2   # slight creativity for commentary; 0.0 for structured outputs
-LLM_MAX_TOKENS      = 2048
+LLM_MAX_TOKENS      = 512
 
 if not OPENROUTER_API_KEY:
     logger.warning("OPENROUTER_API_KEY not set — all LLM calls will fail")
@@ -59,8 +59,7 @@ GROQ_JUDGE_MODEL    = os.getenv("GROQ_JUDGE_MODEL", "meta-llama/llama-4-scout-17
 
 # ── Player / Session ──────────────────────────────────────────────────────────
 
-PLAYER_ID           = os.getenv("PLAYER_ID", "player-001")
-GAME_NAME           = os.getenv("GAME_NAME", "CS2")
+PLAYER_ID           = os.getenv("PLAYER_ID", "ash")
 
 # ── Agent Tuning ──────────────────────────────────────────────────────────────
 

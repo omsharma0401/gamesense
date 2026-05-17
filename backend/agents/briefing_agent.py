@@ -27,12 +27,16 @@ Rules:
 - End with exactly one sentence of what to focus on today
 - Focus areas: 2 to 4 bullet points, specific and actionable
 
-Return valid JSON matching the schema exactly."""
+You MUST respond with a JSON object using EXACTLY these field names:
+{
+  "coaching_paragraph": "personalised coaching paragraph drawing on history, ending with one actionable focus sentence",
+  "focus_areas": ["specific area 1", "specific area 2", "optional area 3"]
+}"""
 
 
 def _build_briefing_prompt(player_id: str, history: list[SessionSummary], skill_context: list[str]) -> str:
     history_lines = "\n".join(
-        f"  Session {i+1} ({s.game}): score={s.score or 'N/A'} "
+        f"  Session {i+1} ({s.genre}): score={s.score or 'N/A'} "
         f"mechanics={s.mechanics or 'N/A'} decisions={s.decision_making or 'N/A'} "
         f"consistency={s.consistency or 'N/A'} moments={s.moments_detected}"
         for i, s in enumerate(history)

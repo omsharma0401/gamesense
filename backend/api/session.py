@@ -62,13 +62,13 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
             detail=f"A session is already active: {_active_session.id}",
         )
 
-    logger.info("Starting session — game=%s player=%s", body.game, body.player_id)
+    logger.info("Starting session — genre=%s player=%s", body.genre, body.player_id)
 
     store = get_store()
     llm   = get_llm()
 
     # Create and persist the session row
-    session = Session(player_id=body.player_id, game=body.game)
+    session = Session(player_id=body.player_id, genre=body.genre)
     await store.create_session(session)
     _active_session = session
 
@@ -77,9 +77,9 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
     from agents.indexing_agent import IndexingAgent
     from agents.moment_agent   import MomentAgent
 
-    capture  = CaptureAgent(session.id, body.player_id, body.game)
+    capture  = CaptureAgent(session.id, body.player_id, body.genre)
     indexing = IndexingAgent()
-    moment   = MomentAgent(session.id, llm, store)
+    moment   = MomentAgent(session.id, body.genre, llm, store)
 
     # Store agent refs on app state for stop route access
     from main import app
@@ -104,7 +104,7 @@ async def start_session(body: SessionStartInput, background_tasks: BackgroundTas
     logger.info("Session started — id=%s", session.id)
     return LiveSessionStatus(
         session_id=session.id,
-        game=session.game,
+        genre=session.genre,
         player_id=session.player_id,
         status="active",
         moments_detected=0,
@@ -151,7 +151,7 @@ async def stop_session(body: SessionStopInput, background_tasks: BackgroundTasks
         logger.info("Video exported — video_id=%s", session.video_id)
 
     # Run post-session pipeline in background
-    background_tasks.add_task(run_post_session_pipeline, session, store, llm, graph)
+    background_tasks.add_task(run_post_session_pipeline, session, store, llm, graph, capture)
 
     logger.info("Session stopped — post-session pipeline queued")
     return {"status": "processing", "session_id": session.id}
@@ -171,7 +171,7 @@ async def get_active():
     elapsed = (datetime.utcnow() - session.started_at).total_seconds()
     return LiveSessionStatus(
         session_id=session.id,
-        game=session.game,
+        genre=session.genre,
         player_id=session.player_id,
         status="active",
         moments_detected=moments_detected,
@@ -195,7 +195,7 @@ async def get_session(session_id: str):
 
     return LiveSessionStatus(
         session_id=session.id,
-        game=session.game,
+        genre=session.genre,
         player_id=session.player_id,
         status=session.status,
         moments_detected=len(moments),
@@ -206,7 +206,7 @@ async def get_session(session_id: str):
 
 # ── Post-session pipeline ─────────────────────────────────────────────────────
 
-async def run_post_session_pipeline(session, store, llm, graph):
+async def run_post_session_pipeline(session, store, llm, graph, capture=None):
     """
     Sequential post-session pipeline:
     AnalysisAgent → MemoryAgent → (HighlightAgent + BriefingAgent in parallel)
@@ -217,6 +217,23 @@ async def run_post_session_pipeline(session, store, llm, graph):
     from agents.briefing_agent  import BriefingAgent
 
     logger.info("Post-session pipeline starting — session=%s", session.id)
+
+    # Grace period — lets any in-progress MomentAgent poll finish writing to SQLite
+    await asyncio.sleep(3.0)
+
+    # Wait for CaptureAgent export (polls the live object — no file I/O race)
+    if capture and not session.video_id:
+        logger.info("Waiting for CaptureAgent export (up to 90s)...")
+        deadline = asyncio.get_event_loop().time() + 90
+        while asyncio.get_event_loop().time() < deadline:
+            if capture.video_id:
+                session.video_id = capture.video_id
+                await store.update_session(session)
+                logger.info("video_id ready — %s", session.video_id)
+                break
+            await asyncio.sleep(2.0)
+        else:
+            logger.warning("video_id not available after 90s")
 
     try:
         # 1. Analysis — score + clip compilation

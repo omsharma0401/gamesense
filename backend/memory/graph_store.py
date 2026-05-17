@@ -47,19 +47,28 @@ class GraphitiGraphStore(BaseGraphStore):
             from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
             from graphiti_core.llm_client.config import LLMConfig
 
-            llm_client = OpenAIGenericClient(
-                config=LLMConfig(
+            from graphiti_core.driver.kuzu_driver import KuzuDriver
+            from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+            from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
+
+            llm_config = LLMConfig(
+                api_key=OPENROUTER_API_KEY,
+                model=OPENROUTER_MODEL,
+                base_url=OPENROUTER_BASE_URL,
+            )
+            llm_client = OpenAIGenericClient(config=llm_config, max_tokens=512)
+            embedder = OpenAIEmbedder(
+                config=OpenAIEmbedderConfig(
                     api_key=OPENROUTER_API_KEY,
-                    model=OPENROUTER_MODEL,
                     base_url=OPENROUTER_BASE_URL,
                 )
             )
-            # kuzu:// URI tells Graphiti to use embedded Kuzu as the backend
+            cross_encoder = OpenAIRerankerClient(config=llm_config)
             self._graphiti = Graphiti(
-                f"kuzu://{self._db_path}",
-                "",   # neo4j user — not used by Kuzu backend
-                "",   # neo4j password — not used by Kuzu backend
+                graph_driver=KuzuDriver(db=self._db_path),
                 llm_client=llm_client,
+                embedder=embedder,
+                cross_encoder=cross_encoder,
             )
             await self._graphiti.build_indices_and_constraints()
             logger.info("Graphiti graph initialised successfully")

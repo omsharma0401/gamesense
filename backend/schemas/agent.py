@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+from schemas.session import GameGenre
 
 
 # ── MomentAgent LLM output ────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ class MomentDetection(BaseModel):
     """
 
     is_moment: bool = Field(..., description="True only if a genuinely significant game event occurred")
-    type: Optional[Literal["kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder"]] = Field(
+    type: Optional[Literal["kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder", "none"]] = Field(
         None,
         description="Required when is_moment=True. The category of the event.",
     )
@@ -35,8 +36,8 @@ class MomentDetection(BaseModel):
     )
     significance: int = Field(
         ...,
-        ge=1, le=10,
-        description="1=minor, 10=game-changing. Use low values aggressively to filter noise.",
+        ge=0, le=10,
+        description="0=no moment, 1=minor, 10=game-changing. Use 0 when is_moment=False.",
     )
     timestamp_ms: int = Field(
         ...,
@@ -111,7 +112,7 @@ class BriefingOutput(BaseModel):
 # ── API request schemas ───────────────────────────────────────────────────────
 
 class SessionStartInput(BaseModel):
-    game: str = Field(..., description="Game name, e.g. 'CS2'")
+    genre: GameGenre = Field(..., description="Game genre, e.g. 'tactical-shooter'")
     player_id: str = Field(..., description="Unique player identifier")
 
 
@@ -132,7 +133,7 @@ class DiscordShareInput(BaseModel):
 
 class LiveSessionStatus(BaseModel):
     session_id: str
-    game: str
+    genre: GameGenre
     player_id: str
     status: Literal["active", "processing", "complete", "failed"]
     moments_detected: int = 0

@@ -35,7 +35,7 @@ def _select_highlight_clips(clips: list[Clip], max_clips: int) -> list[Clip]:
 
 
 def _build_narration_text(clips: list[Clip], session: Session) -> str:
-    lines = [f"GameSense highlight reel — {session.game}. Here are your best moments."]
+    lines = [f"GameSense highlight reel — {session.genre}. Here are your best moments."]
     for clip in clips:
         lines.append(clip.commentary)
     lines.append("That's your session. Keep grinding.")

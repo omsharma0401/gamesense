@@ -44,7 +44,18 @@ Analyse their overall performance and provide:
   - A summary paragraph written in second-person coaching voice
 
 Be honest and specific. Do not inflate scores. A good session is 70+.
-Return valid JSON matching the schema exactly."""
+
+You MUST respond with a JSON object using EXACTLY these field names:
+{
+  "score": {
+    "overall": integer 0-100,
+    "mechanics": integer 0-100,
+    "decision_making": integer 0-100,
+    "consistency": integer 0-100
+  },
+  "patterns": ["specific recurring behaviour 1", "specific recurring behaviour 2"],
+  "summary": "one paragraph coaching summary written in second-person voice"
+}"""
 
 
 def _build_analysis_prompt(session: Session, moments: list[Moment]) -> str:
@@ -53,7 +64,7 @@ def _build_analysis_prompt(session: Session, moments: list[Moment]) -> str:
         for i, m in enumerate(moments)
     )
     return f"""Session to analyse:
-Game: {session.game}
+Genre: {session.genre}
 Player: {session.player_id}
 Duration: {_format_duration(session)}
 Total moments detected: {len(moments)}
@@ -153,6 +164,34 @@ class AnalysisAgent(BaseAgent):
         """No-op — analysis runs once and terminates naturally."""
         self._running = False
 
+    async def _wait_for_video_id(self, timeout: float = 90.0) -> Optional[str]:
+        """
+        Poll CAPTURE_INFO_PATH for video_id written by CaptureAgent on export.
+        Falls back to polling the store in case it was written there directly.
+        """
+        from config import CAPTURE_INFO_PATH
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            # Primary: CaptureAgent writes video_id here on capture_session.exported
+            if CAPTURE_INFO_PATH.exists():
+                try:
+                    info = json.loads(CAPTURE_INFO_PATH.read_text())
+                    vid = info.get("video_id")
+                    if vid and info.get("session_id") == self._session.id:
+                        logger.info("CaptureAgent export ready — video_id=%s", vid)
+                        return vid
+                except Exception:
+                    pass
+            # Fallback: check SQLite
+            session = await self._store.get_session(self._session.id)
+            if session and session.video_id:
+                logger.info("video_id found in store — %s", session.video_id)
+                return session.video_id
+            await asyncio.sleep(3.0)
+        logger.warning("video_id not available after %.0fs — clips will be skipped", timeout)
+        return None
+
     # ── Internal — LLM scoring ────────────────────────────────────────────────
 
     async def _score_session(
@@ -225,9 +264,16 @@ class AnalysisAgent(BaseAgent):
         Search the video for a moment and compile a clip.
         Returns None if no matching segment is found (handles InvalidRequestError).
         """
-        # Clamp start time — negative timestamps silently produce broken streams
-        start_time = max(0.0, moment.timestamp_ms / 1000.0 - 5.0)
-        end_time   = max(start_time + 5.0, moment.timestamp_ms / 1000.0 + 10.0)
+        # timestamp_ms from LLM is absolute unix_ts in ms (taken from event unix_ts field).
+        # Convert to video-relative seconds by subtracting session start epoch.
+        from datetime import timezone
+        session_start_ms = int(
+            self._session.started_at.replace(tzinfo=timezone.utc).timestamp() * 1000
+        )
+        relative_ms = moment.timestamp_ms - session_start_ms
+        # Clamp — negative timestamps silently produce broken streams
+        start_time = max(0.0, relative_ms / 1000.0 - 5.0)
+        end_time   = max(start_time + 5.0, relative_ms / 1000.0 + 10.0)
 
         logger.debug(
             "Compiling clip — moment=%s type=%s start=%.1fs end=%.1fs",

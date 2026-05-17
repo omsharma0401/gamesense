@@ -52,10 +52,10 @@ class CaptureAgent(BaseAgent):
     Video IDs become available after the capture_session.exported event.
     """
 
-    def __init__(self, session_id: str, player_id: str, game: str):
+    def __init__(self, session_id: str, player_id: str, genre: str):
         self._session_id      = session_id
         self._player_id       = player_id
-        self._game            = game
+        self._genre           = genre
         self._running         = False
 
         # Populated during run()
@@ -70,8 +70,8 @@ class CaptureAgent(BaseAgent):
         self._active_event = asyncio.Event()
 
         logger.info(
-            "CaptureAgent created — session=%s game=%s player=%s",
-            session_id, game, player_id,
+            "CaptureAgent created — session=%s genre=%s player=%s",
+            session_id, genre, player_id,
         )
 
     @property
@@ -170,7 +170,7 @@ class CaptureAgent(BaseAgent):
                 end_user_id=self._player_id,
                 collection_id="default",
                 ws_connection_id=self._ws_id,
-                metadata={"game": self._game, "gamesense_session_id": self._session_id},
+                metadata={"genre": self._genre, "gamesense_session_id": self._session_id},
             )
             self._capture_session_id = cap_session.id
             logger.info("CaptureSession created — cap_session_id=%s", self._capture_session_id)
@@ -200,6 +200,7 @@ class CaptureAgent(BaseAgent):
             selected = []
             if display:
                 display.store = True   # persist to get exported_video_id
+                display.is_primary = True
                 selected.append(display)
                 logger.info("Display channel selected — %s", display.name)
             if mic:
@@ -208,10 +209,9 @@ class CaptureAgent(BaseAgent):
                 selected.append(sys_aud)
 
             # Start streaming
-            await self._client.start_capture_session(
+            await self._client.start_session(
                 capture_session_id=self._capture_session_id,
                 channels=selected,
-                primary_video_channel_id=display.id if display else None,
             )
             logger.info("Capture streaming started — waiting for active event…")
 
@@ -276,7 +276,7 @@ class CaptureAgent(BaseAgent):
             "ws_id":             self._ws_id,
             "rtstream_ids":      [r["rtstream_id"] for r in rtstreams],
             "rtstreams":         rtstreams,
-            "game":              self._game,
+            "genre":             self._genre,
             "player_id":         self._player_id,
         }
         CAPTURE_INFO_PATH.write_text(json.dumps(info, indent=2))
@@ -289,7 +289,7 @@ class CaptureAgent(BaseAgent):
             return
         logger.info("Stopping CaptureClient…")
         try:
-            await self._client.stop_capture()
+            await self._client.stop_session()
             await self._client.shutdown()
             logger.info("CaptureClient stopped and shut down")
         except Exception as exc:

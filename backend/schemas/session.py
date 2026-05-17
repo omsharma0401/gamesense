@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 # ── Enums as Literals (avoids an extra import, works with Pydantic v2) ────────
 
 MomentType = Literal["kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder"]
+GameGenre = Literal["arcade-racing", "tactical-shooter", "rts", "turn-based-tactics"]
 SessionStatus = Literal["active", "processing", "complete", "failed"]
 AnalysisStatus = Literal["pending", "complete", "failed"]
 HighlightStatus = Literal["pending", "generating", "complete", "failed"]
@@ -120,7 +121,7 @@ class Session(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     player_id: str
-    game: str
+    genre: GameGenre
     status: SessionStatus = "active"
 
     # VideoDB references
@@ -142,7 +143,7 @@ class SessionSummary(BaseModel):
     """Lightweight session row returned by GET /history/{player_id}."""
 
     id: str
-    game: str
+    genre: GameGenre
     score: Optional[int] = None
     mechanics: Optional[int] = None
     decision_making: Optional[int] = None
