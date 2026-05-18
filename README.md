@@ -10,7 +10,7 @@ The system runs a pipeline of specialised AI agents concurrently during your ses
 
 ## Short Description (submission, 200 words)
 
-GameSense is a multi-agent AI dashboard that watches your gameplay in real time and automatically turns it into shareable content. It uses VideoDB's CaptureSession SDK to stream your screen live, runs visual and audio indexing pipelines on the RTStream feed, and uses an LLM to detect gameplay moments as they happen — clutch plays, blunders, clean runs, mistakes — tagging each with a significance score and broadcast-style caster commentary. After the session it compiles short clips for every flagged moment using VideoDB's semantic search and timeline generator, and stitches the best ones into a narrated highlight reel with ElevenLabs voice overlays assembled via VideoDB's Timeline editor. A temporal knowledge graph tracks how your play evolves across sessions and generates a personalised pre-game note before your next run. VideoDB is the foundation for every step that touches video: capture, live indexing, clip compilation, voice synthesis, timeline assembly, and the optional 9:16 vertical reframe for short-form sharing.
+GameSense is a multi agent AI dashboard that watches your gameplay in real time and turns it into shareable content. It streams your screen through VideoDB's CaptureSession, detects clutch plays, blunders, and key moments as they happen, and tags each with a significance score and caster commentary. After the session, it compiles clips, stitches a narrated highlight reel with ElevenLabs voice overlays, and exports a vertical cut for short-form sharing. A knowledge graph tracks your progress across sessions and drops a personalised pre-game brief before your next run. VideoDB powers every step — capture, indexing, clipping, and final export.
 
 ---
 
@@ -87,153 +87,6 @@ The backend is a pipeline of specialised agents that coordinate through shared s
 `MemoryAgent` persists the full analysis to SQLite and fires a background task to add a session episode to the Graphiti knowledge graph.
 
 `HighlightAgent` and `BriefingAgent` run in parallel: the first assembles the narrated reel, the second queries the graph and session history to generate the pre-session note.
-
-### Data flow
-
-```
-Desktop screen
-    |
-    v
-VideoDB CaptureSession (ws_listener.py)
-    |
-    |---> RTStream IDs ---> IndexingAgent ---> visual/audio AI pipelines
-    |                                               |
-    |                                               v
-    |                                        videodb_events.jsonl
-    |                                               |
-    |                                               v
-    |                                        MomentAgent ---> SQLite (moments)
-    |                                                               |
-    |                                                               v
-    |                                                        LiveCoachAgent ---> afplay + Discord
-    |
-    v
-capture_session.exported ---> video_id
-    |
-    v
-AnalysisAgent ---> video.search() + generate_stream() ---> clips
-    |
-    v
-MemoryAgent ---> SQLite (analysis) + Graphiti (episode)
-    |
-    v
-HighlightAgent ---> Timeline + generate_voice() ---> highlight reel
-BriefingAgent  ---> graph context + LLM ---> pre-session note
-```
-
----
-
-## Supported Genres
-
-The moment detection model receives genre-specific context before classifying each event, so both the language and what counts as significant are calibrated to the game type. The platform currently supports four genres.
-
-| Genre | Example Games | What the AI Tracks |
-|-------|---------------|--------------------|
-| Arcade Racing | Asphalt 8/9, Mario Kart | Overtakes, crashes, clutch recoveries, missed apexes, clean laps |
-| Tactical Shooter | Valorant, CS2 | Kills, deaths, clutch rounds, mechanical highlights, round-ending blunders |
-| Real-Time Strategy | StarCraft II, Clash Royale | Unit trades, base raids, clutch defences, economy errors, tech switches |
-| Turn-Based Tactics | Chess, 8 Ball Pool | Eliminations, units lost, clutch reversals, perfect turns, tactical pivots |
-
----
-
-## Tech Stack
-
-**Backend**
-- Python 3.13, FastAPI, uvicorn
-- `aiosqlite` — async SQLite (sessions, moments, analyses, briefings, highlights, suggestions)
-- `graphiti-core[kuzu]` — embedded temporal knowledge graph, no Docker required
-- `openai` SDK pointed at OpenRouter (primary LLM) and Groq (eval judge)
-- `httpx` — async HTTP for Discord webhooks and audio downloads
-- `pydantic` v2 — all schemas
-- `videodb` hackathon branch — capture, indexing, clips, voice, timeline, reframe
-
-**Frontend**
-- Next.js 16, React 19, TypeScript
-- Tailwind CSS v4
-- Recharts for trend graphs
-- Framer Motion for transitions
-- `hls.js` for VideoDB stream playback
-- Shadcn UI components
-
-**External services**
-- VideoDB (capture, indexing, clip generation, voice synthesis, timeline, sandbox compute)
-- OpenRouter (default model: `openai/gpt-oss-120b`)
-- Groq (`meta-llama/llama-4-scout-17b-16e-instruct`, eval judge only)
-- Discord (optional webhook)
-
----
-
-## Folder Structure
-
-```
-gamesense/
-├── backend/
-│   ├── agents/
-│   │   ├── interfaces.py           # BaseAgent ABC
-│   │   ├── capture_agent.py        # VideoDB desktop capture lifecycle
-│   │   ├── indexing_agent.py       # RTStream visual + audio indexing
-│   │   ├── moment_agent.py         # Real-time moment detection via LLM
-│   │   ├── live_coach_agent.py     # Live audio cues + ElevenLabs TTS
-│   │   ├── analysis_agent.py       # Post-session scoring + clip compilation
-│   │   ├── highlight_agent.py      # Highlight reel assembly with Timeline
-│   │   ├── memory_agent.py         # SQLite + Graphiti persistence
-│   │   ├── briefing_agent.py       # Pre-session note generation
-│   │   └── ws_listener.py          # WebSocket listener subprocess
-│   ├── api/
-│   │   ├── session.py              # POST /session/start, /session/stop, GET /session/active
-│   │   ├── analysis.py             # GET /analysis/{id}, /briefing/{player}, /history/{player}
-│   │   ├── clips.py                # GET /clips/{id}, POST /clips/{id}/highlight
-│   │   ├── suggestions.py          # GET /suggestions/{id}
-│   │   └── discord.py              # Discord webhook helpers
-│   ├── llm/
-│   │   ├── interfaces.py           # BaseLLMProvider ABC
-│   │   └── openrouter_provider.py  # OpenAI-compatible client for OpenRouter
-│   ├── memory/
-│   │   ├── interfaces.py           # BaseSessionStore, BaseGraphStore ABCs
-│   │   ├── session_store.py        # SQLiteSessionStore
-│   │   └── graph_store.py          # GraphitiGraphStore (Kuzu backend)
-│   ├── schemas/
-│   │   ├── session.py              # Session, Moment, Score, Clip, AnalysisResult, etc.
-│   │   └── agent.py                # LLM output schemas (MomentDetection, AnalysisOutput, etc.)
-│   ├── eval/
-│   │   ├── judge.py                # Groq-based eval judge
-│   │   ├── runner.py               # Eval runner (--no-judge for zero-key CI)
-│   │   └── fixtures.py             # Pre-recorded events and sessions
-│   ├── tests/                      # pytest unit tests (mocked LLM, no API keys needed)
-│   ├── data/
-│   │   ├── gamesense.db            # SQLite database (gitignored)
-│   │   └── kuzu/                   # Graphiti graph database (gitignored)
-│   ├── config.py                   # All env vars and constants
-│   ├── main.py                     # FastAPI entry point
-│   ├── sandbox_start.py            # Creates VideoDB sandbox, writes ID to .env
-│   ├── sandbox_stop.py             # Stops the sandbox (run when done to save credits)
-│   ├── requirements.txt
-│   └── .env.example
-└── frontend/
-    ├── src/
-    │   ├── app/
-    │   │   ├── layout.tsx
-    │   │   └── page.tsx            # Root dashboard layout
-    │   ├── components/
-    │   │   ├── layout/
-    │   │   │   └── Sidebar.tsx     # Nav, genre/game selector, record toggle, live cue feed
-    │   │   ├── dashboard/
-    │   │   │   ├── AllClipsScreen.tsx      # Clip grid by session with Skill Points
-    │   │   │   ├── HighlightsScreen.tsx    # Highlight reel player
-    │   │   │   ├── PerformanceScreen.tsx   # Trend charts + pre-session note
-    │   │   │   ├── WrappedScreen.tsx       # Persona, epic summary, dimension scores
-    │   │   │   └── RecordsScreen.tsx       # Raw moment and session records
-    │   │   └── ui/
-    │   │       ├── HlsPlayer.tsx   # hls.js wrapper for VideoDB stream URLs
-    │   │       └── ...             # Shadcn components
-    │   └── lib/
-    │       ├── api.ts              # Typed API client
-    │       ├── genres.ts           # Genre config, moment labels, Skill Points weights
-    │       └── utils.ts
-    └── package.json
-```
-
----
 
 ## Prerequisites
 
@@ -363,46 +216,30 @@ python sandbox_stop.py
 
 ---
 
-## Environment Variables Reference
+## Tech Stack
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VIDEO_DB_API_KEY` | Yes | — | VideoDB API key |
-| `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key |
-| `GROQ_API_KEY` | No | — | Groq API key (eval judge only) |
-| `DISCORD_WEBHOOK_URL` | No | — | Discord channel webhook for live cue log |
-| `VIDEODB_SANDBOX_ID` | Auto | — | Written by `sandbox_start.py`, do not set manually |
-| `OPENROUTER_MODEL` | No | `openai/gpt-oss-120b` | LLM used for all inference |
-| `GROQ_JUDGE_MODEL` | No | `meta-llama/llama-4-scout-17b-16e-instruct` | Eval judge model |
-| `PLAYER_ID` | No | `ash` | Player identifier |
-| `MOMENT_POLL_INTERVAL` | No | `30` | Seconds between moment detection cycles |
-| `VISUAL_INDEX_MODEL` | No | `basic` | VideoDB indexing tier: `mini`, `basic`, `pro`, `ultra` |
-| `SQLITE_DB_PATH` | No | `./data/gamesense.db` | SQLite database path |
-| `KUZU_DB_PATH` | No | `./data/kuzu` | Graphiti graph database path |
-| `EVENTS_PATH` | No | `/tmp/videodb_events.jsonl` | WebSocket event log path |
+**Backend**
+- Python 3.13, FastAPI, uvicorn
+- `aiosqlite` — async SQLite (sessions, moments, analyses, briefings, highlights, suggestions)
+- `graphiti-core[kuzu]` — embedded temporal knowledge graph, no Docker required
+- `openai` SDK pointed at OpenRouter (primary LLM) and Groq (eval judge)
+- `httpx` — async HTTP for Discord webhooks and audio downloads
+- `pydantic` v2 — all schemas
+- `videodb` hackathon branch — capture, indexing, clips, voice, timeline, reframe
 
----
+**Frontend**
+- Next.js 16, React 19, TypeScript
+- Tailwind CSS v4
+- Recharts for trend graphs
+- Framer Motion for transitions
+- `hls.js` for VideoDB stream playback
+- Shadcn UI components
 
-## API Reference
-
-Full interactive documentation at `http://localhost:8000/docs`.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/session/start` | Start a session and launch all live agents |
-| POST | `/session/stop` | Stop the session and trigger post-session pipeline |
-| GET | `/session/active` | Current live session status (polled every 2s by frontend) |
-| GET | `/session/{id}` | Session status and live moment count |
-| GET | `/analysis/{id}` | Full post-session result (scores, clips, patterns, summary) |
-| GET | `/analysis/briefing/{player_id}` | Latest pre-session note |
-| GET | `/analysis/history/{player_id}` | Session history for trend charts |
-| GET | `/analysis/games/{player_id}` | Distinct game titles recorded by a player |
-| GET | `/clips/{session_id}` | All compiled clips for a session |
-| POST | `/clips/{session_id}/highlight` | Trigger highlight reel generation |
-| GET | `/clips/highlight/{session_id}` | Highlight reel status and stream URL |
-| POST | `/clips/highlight/{session_id}/vertical` | Trigger 9:16 vertical reframe |
-| GET | `/suggestions/{session_id}` | Live cues (supports `?since_ms=` filter) |
-| GET | `/health` | Health check |
+**External services**
+- VideoDB (capture, indexing, clip generation, voice synthesis, timeline, sandbox compute)
+- OpenRouter (default model: `openai/gpt-oss-120b`)
+- Groq (`meta-llama/llama-4-scout-17b-16e-instruct`, eval judge only)
+- Discord (optional webhook)
 
 ---
 
@@ -418,14 +255,99 @@ Unit tests mock all LLM and VideoDB calls. No API keys required.
 
 ---
 
+## Supported Genres
+
+The moment detection model receives genre-specific context before classifying each event, so both the language and what counts as significant are calibrated to the game type. The platform currently supports four genres.
+
+| Genre | Example Games | What the AI Tracks |
+|-------|---------------|--------------------|
+| Arcade Racing | Asphalt 8/9, Mario Kart | Overtakes, crashes, clutch recoveries, missed apexes, clean laps |
+| Tactical Shooter | Valorant, CS2 | Kills, deaths, clutch rounds, mechanical highlights, round-ending blunders |
+| Real-Time Strategy | StarCraft II, Clash Royale | Unit trades, base raids, clutch defences, economy errors, tech switches |
+| Turn-Based Tactics | Chess, 8 Ball Pool | Eliminations, units lost, clutch reversals, perfect turns, tactical pivots |
+
+---
+
+
+
+## Folder Structure
+
+```
+gamesense/
+├── backend/
+│   ├── agents/
+│   │   ├── interfaces.py           # BaseAgent ABC
+│   │   ├── capture_agent.py        # VideoDB desktop capture lifecycle
+│   │   ├── indexing_agent.py       # RTStream visual + audio indexing
+│   │   ├── moment_agent.py         # Real-time moment detection via LLM
+│   │   ├── live_coach_agent.py     # Live audio cues + ElevenLabs TTS
+│   │   ├── analysis_agent.py       # Post-session scoring + clip compilation
+│   │   ├── highlight_agent.py      # Highlight reel assembly with Timeline
+│   │   ├── memory_agent.py         # SQLite + Graphiti persistence
+│   │   ├── briefing_agent.py       # Pre-session note generation
+│   │   └── ws_listener.py          # WebSocket listener subprocess
+│   ├── api/
+│   │   ├── session.py              # POST /session/start, /session/stop, GET /session/active
+│   │   ├── analysis.py             # GET /analysis/{id}, /briefing/{player}, /history/{player}
+│   │   ├── clips.py                # GET /clips/{id}, POST /clips/{id}/highlight
+│   │   ├── suggestions.py          # GET /suggestions/{id}
+│   │   └── discord.py              # Discord webhook helpers
+│   ├── llm/
+│   │   ├── interfaces.py           # BaseLLMProvider ABC
+│   │   └── openrouter_provider.py  # OpenAI-compatible client for OpenRouter
+│   ├── memory/
+│   │   ├── interfaces.py           # BaseSessionStore, BaseGraphStore ABCs
+│   │   ├── session_store.py        # SQLiteSessionStore
+│   │   └── graph_store.py          # GraphitiGraphStore (Kuzu backend)
+│   ├── schemas/
+│   │   ├── session.py              # Session, Moment, Score, Clip, AnalysisResult, etc.
+│   │   └── agent.py                # LLM output schemas (MomentDetection, AnalysisOutput, etc.)
+│   ├── eval/
+│   │   ├── judge.py                # Groq-based eval judge
+│   │   ├── runner.py               # Eval runner (--no-judge for zero-key CI)
+│   │   └── fixtures.py             # Pre-recorded events and sessions
+│   ├── tests/                      # pytest unit tests (mocked LLM, no API keys needed)
+│   ├── data/
+│   │   ├── gamesense.db            # SQLite database (gitignored)
+│   │   └── kuzu/                   # Graphiti graph database (gitignored)
+│   ├── config.py                   # All env vars and constants
+│   ├── main.py                     # FastAPI entry point
+│   ├── sandbox_start.py            # Creates VideoDB sandbox, writes ID to .env
+│   ├── sandbox_stop.py             # Stops the sandbox (run when done to save credits)
+│   ├── requirements.txt
+│   └── .env.example
+└── frontend/
+    ├── src/
+    │   ├── app/
+    │   │   ├── layout.tsx
+    │   │   └── page.tsx            # Root dashboard layout
+    │   ├── components/
+    │   │   ├── layout/
+    │   │   │   └── Sidebar.tsx     # Nav, genre/game selector, record toggle, live cue feed
+    │   │   ├── dashboard/
+    │   │   │   ├── AllClipsScreen.tsx      # Clip grid by session with Skill Points
+    │   │   │   ├── HighlightsScreen.tsx    # Highlight reel player
+    │   │   │   ├── PerformanceScreen.tsx   # Trend charts + pre-session note
+    │   │   │   ├── WrappedScreen.tsx       # Persona, epic summary, dimension scores
+    │   │   │   └── RecordsScreen.tsx       # Raw moment and session records
+    │   │   └── ui/
+    │   │       ├── HlsPlayer.tsx   # hls.js wrapper for VideoDB stream URLs
+    │   │       └── ...             # Shadcn components
+    │   └── lib/
+    │       ├── api.ts              # Typed API client
+    │       ├── genres.ts           # Genre config, moment labels, Skill Points weights
+    │       └── utils.ts
+    └── package.json
+```
+
+---
+
+
+
 ## A Few Design Notes
 
 **Why polling instead of WebSockets to the frontend.** The frontend polls every two seconds for session status and every five seconds for live cues. This is adequate for the update cadence that cues require, avoids managing a persistent WebSocket connection from the browser, and simplifies the server considerably.
 
 **Why a separate judge model.** The Groq judge uses a different model family than the OpenRouter inference model. This avoids the well-documented self-evaluation bias where a model rates its own outputs more favourably than an independent evaluator would.
-
-**Why Graphiti over a vector store.** Statements like "the player consistently overextends after going ahead two kills" are temporal claims — they became true at some point and may stop being true later. Graphiti with an embedded Kuzu backend represents this naturally, without requiring a separate database server.
-
-**Why `asyncio.create_task` for graph episodes.** `add_episode()` calls the LLM internally to extract entities. Awaiting it on the request path would block for several seconds. It runs as a fire-and-forget background task.
 
 **Why structured output for every LLM call.** Every LLM call that returns data uses `complete_structured()` with a named JSON schema. Parse failures are recoverable with fallback values rather than pipeline-breaking exceptions.
