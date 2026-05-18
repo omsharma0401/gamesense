@@ -8,6 +8,7 @@ The brief is stored in SQLite and served by GET /briefing/{player_id}.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from agents.interfaces import BaseAgent
@@ -109,14 +110,28 @@ class BriefingAgent(BaseAgent):
 
         try:
             output = BriefingOutput.model_validate_json(raw)
+            coaching_paragraph = output.coaching_paragraph
+            focus_areas = output.focus_areas
         except Exception as exc:
-            logger.error("Failed to parse BriefingOutput: %s | raw=%s", exc, raw[:200])
-            raise
+            logger.warning("Failed to parse BriefingOutput, using fallback brief: %s | raw=%s", exc, raw[:200])
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+            coaching_paragraph = data.get("coaching_paragraph") if isinstance(data, dict) and isinstance(data.get("coaching_paragraph"), str) else (
+                "Your latest sessions are now logged. Focus on creating more clear, coachable moments this run so GameSense can build a sharper read on your strengths and mistakes."
+            )
+            focus_areas = data.get("focus_areas") if isinstance(data, dict) and isinstance(data.get("focus_areas"), list) else [
+                "Create clear moments",
+                "Recover after mistakes",
+                "Stay consistent",
+            ]
+            focus_areas = [str(area) for area in focus_areas[:4]] or ["Play naturally", "Stay focused"]
 
         briefing = Briefing(
             player_id=self._player_id,
-            coaching_paragraph=output.coaching_paragraph,
-            focus_areas=output.focus_areas,
+            coaching_paragraph=coaching_paragraph,
+            focus_areas=focus_areas,
             session_count=len(history),
         )
         await self._store.save_briefing(briefing)

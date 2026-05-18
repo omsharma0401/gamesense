@@ -40,7 +40,7 @@ MOMENT_DETECTION_SCHEMA = {
         "type": "object",
         "properties": {
             "is_moment":    {"type": "boolean"},
-            "type":         {"anyOf": [{"type": "string", "enum": ["kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder"]}, {"type": "null"}]},
+            "type":         {"anyOf": [{"type": "string", "enum": ["kill", "death", "clutch", "error", "strategy_break", "highlight", "blunder", "none"]}, {"type": "null"}]},
             "description":  {"type": "string"},
             "significance": {"type": "integer"},
             "timestamp_ms": {"type": "integer"},

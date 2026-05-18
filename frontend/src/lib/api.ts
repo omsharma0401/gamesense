@@ -86,6 +86,7 @@ export interface Suggestion {
   type: "hype" | "warning" | "tip" | "focus";
   trigger: string;
   significance: number;
+  audio_url: string | null;
   created_at: string;
 }
 

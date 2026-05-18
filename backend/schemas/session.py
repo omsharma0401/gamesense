@@ -97,6 +97,7 @@ class Suggestion(BaseModel):
     type: SuggestionType = Field(..., description="hype | warning | tip | focus")
     trigger: str = Field(..., description="moment:<type> or pattern:<name>")
     significance: int = Field(5, ge=1, le=10)
+    audio_url: str | None = Field(None, description="Signed URL for the ElevenLabs voice clip")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

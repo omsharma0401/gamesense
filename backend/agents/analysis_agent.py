@@ -233,21 +233,49 @@ class AnalysisAgent(BaseAgent):
 
         try:
             output = AnalysisOutput.model_validate_json(raw)
+            score = Score(
+                overall=output.score.overall,
+                mechanics=output.score.mechanics,
+                decision_making=output.score.decision_making,
+                consistency=output.score.consistency,
+            )
+            patterns = output.patterns
+            summary = output.summary
+            epic_summary = output.epic_summary
+            persona = output.persona
         except Exception as exc:
-            logger.error("Failed to parse AnalysisOutput: %s | raw=%s", exc, raw[:300])
-            raise
+            logger.warning("Failed to parse AnalysisOutput, using fallback analysis: %s | raw=%s", exc, raw[:300])
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
 
-        score = Score(
-            overall=output.score.overall,
-            mechanics=output.score.mechanics,
-            decision_making=output.score.decision_making,
-            consistency=output.score.consistency,
-        )
+            score_data = data.get("score") if isinstance(data, dict) else None
+            if isinstance(score_data, dict):
+                score = Score(
+                    overall=int(score_data.get("overall", 50)),
+                    mechanics=int(score_data.get("mechanics", 50)),
+                    decision_making=int(score_data.get("decision_making", 50)),
+                    consistency=int(score_data.get("consistency", 50)),
+                )
+            else:
+                avg_sig = sum(m.significance for m in moments) / len(moments) if moments else 0
+                overall = max(30, min(90, int(35 + avg_sig * 5 + len(moments) * 3)))
+                score = Score(overall=overall, mechanics=overall, decision_making=overall, consistency=max(30, overall - 5))
+
+            patterns = data.get("patterns") if isinstance(data, dict) and isinstance(data.get("patterns"), list) else []
+            summary = data.get("summary") if isinstance(data, dict) and isinstance(data.get("summary"), str) else (
+                f"Detected {len(moments)} notable moment(s). "
+                "The session had enough signal for a basic performance read, but the model returned partial analysis."
+            )
+            epic_summary = data.get("epic_summary") if isinstance(data, dict) and isinstance(data.get("epic_summary"), str) else "A short session with one clear spark."
+            persona = data.get("persona") if isinstance(data, dict) and isinstance(data.get("persona"), str) else "The Highlight Hunter"
+
         logger.info(
             "LLM scores — overall=%d mechanics=%d decisions=%d consistency=%d persona=%s",
-            score.overall, score.mechanics, score.decision_making, score.consistency, output.persona,
+            score.overall, score.mechanics, score.decision_making, score.consistency, persona,
         )
-        return score, output.patterns, output.summary, output.epic_summary, output.persona
+        return score, patterns, summary, epic_summary, persona
 
     # ── Internal — clip compilation ───────────────────────────────────────────
 

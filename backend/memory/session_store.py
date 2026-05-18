@@ -126,6 +126,7 @@ class SQLiteSessionStore(BaseSessionStore):
                 type        TEXT NOT NULL,
                 trigger     TEXT NOT NULL,
                 significance INTEGER DEFAULT 5,
+                audio_url   TEXT,
                 created_at  TEXT NOT NULL
             );
 
@@ -138,12 +139,16 @@ class SQLiteSessionStore(BaseSessionStore):
     async def _migrate(self) -> None:
         """Add columns introduced after initial schema — idempotent."""
         assert self._conn
-        try:
-            await self._conn.execute("ALTER TABLE sessions ADD COLUMN game_name TEXT")
-            await self._conn.commit()
-            logger.info("Migration: added game_name column to sessions")
-        except Exception:
-            pass  # column already exists
+        for sql, label in [
+            ("ALTER TABLE sessions ADD COLUMN game_name TEXT", "sessions.game_name"),
+            ("ALTER TABLE suggestions ADD COLUMN audio_url TEXT", "suggestions.audio_url"),
+        ]:
+            try:
+                await self._conn.execute(sql)
+                await self._conn.commit()
+                logger.info("Migration: added %s column", label)
+            except Exception:
+                pass  # column already exists
 
     # ── Session CRUD ──────────────────────────────────────────────────────────
 
@@ -396,8 +401,8 @@ class SQLiteSessionStore(BaseSessionStore):
             assert self._conn
             await self._conn.execute(
                 """INSERT OR REPLACE INTO suggestions
-                   (id, session_id, text, type, trigger, significance, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (id, session_id, text, type, trigger, significance, audio_url, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     suggestion.id,
                     suggestion.session_id,
@@ -405,6 +410,7 @@ class SQLiteSessionStore(BaseSessionStore):
                     suggestion.type,
                     suggestion.trigger,
                     suggestion.significance,
+                    suggestion.audio_url,
                     suggestion.created_at.isoformat(),
                 ),
             )
@@ -431,6 +437,7 @@ class SQLiteSessionStore(BaseSessionStore):
                 type=row["type"],
                 trigger=row["trigger"],
                 significance=row["significance"],
+                audio_url=row["audio_url"] if "audio_url" in row.keys() else None,
                 created_at=row["created_at"],
             )
             # Filter by since_ms if provided

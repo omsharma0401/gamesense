@@ -49,10 +49,17 @@ export function Sidebar({ activeTab, setActiveTab, genre, setGenre, game, setGam
     const interval = setInterval(async () => {
       const fresh = await api.getSuggestions(activeSession.session_id, sinceMs.current);
       if (fresh.length > 0) {
-        // Advance the watermark to newest suggestion's timestamp
-        const newest = new Date(fresh[fresh.length - 1].created_at).getTime();
-        sinceMs.current = newest;
-        setSuggestions(prev => [...prev, ...fresh].slice(-5)); // keep last 5
+        const rawTs = fresh[fresh.length - 1].created_at;
+        const newest = new Date(rawTs.endsWith("Z") ? rawTs : rawTs + "Z").getTime();
+        sinceMs.current = newest + 1; // exclusive — skip exact boundary
+        setSuggestions(prev => [...prev, ...fresh].slice(-5));
+        // Auto-play the most recent cue's voice if available
+        const latest = fresh[fresh.length - 1];
+        if (latest.audio_url) {
+          try {
+            new Audio(latest.audio_url).play();
+          } catch { /* ignore autoplay policy errors */ }
+        }
       }
     }, 5000);
     return () => clearInterval(interval);

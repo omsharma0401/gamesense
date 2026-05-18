@@ -86,15 +86,16 @@ _GENRE_CONTEXT = {
 }
 
 _MOMENT_BASE_PROMPT = """You are a live esports broadcast analyst watching real-time gameplay events from an AI vision feed.
-Your job: identify genuinely significant game moments that belong in a highlight reel.
+Your job: capture notable gameplay moments as candidates for live coaching and post-session filtering.
 
 STRICT FILTERS — return is_moment=false for:
   - Loading screens, menus, inventory/loadout screens
   - Spectator cam or other players' perspectives
   - Idle periods, cutscenes, map transitions
-  - Minor position adjustments or routine actions
 
-Only flag events a broadcast director would cut to. Be selective — quality over quantity.
+Flag small, medium, and major gameplay moments. Prefer capturing a real gameplay event with significance 3-5 over missing it. Post-session analysis will decide which moments become highlights.
+Examples worth capturing: overtakes, crashes, recoveries, close calls, item/ability usage, missed opportunities, kills, deaths, objective progress, tactical pivots, strong execution, and clear mistakes.
+Do not flag purely static camera movement or repeated descriptions unless the game state changed.
 
 COMMENTARY GUIDE — write commentary like a live esports caster:
   - Use present tense: "He HOLDS the angle", "She THREADS the needle"

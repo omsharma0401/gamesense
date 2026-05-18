@@ -2,7 +2,8 @@
 agents/highlight_agent.py — Highlight reel generation agent.
 
 Picks top MAX_HIGHLIGHT_CLIPS moments (mixing positive + negative for arc),
-generates OmniVoice narration, and assembles a Timeline with clips + audio.
+generates per-clip ElevenLabs commentary overlays via VideoDB, and assembles
+a Timeline with clips + audio overlays at each clip's exact timestamp.
 Returns a stream_url the frontend embeds directly.
 """
 from __future__ import annotations
@@ -40,12 +41,11 @@ def _select_highlight_clips(clips: list[Clip], max_clips: int) -> list[Clip]:
     return selected
 
 
-def _build_narration_text(clips: list[Clip], session: Session) -> str:
-    lines = []
-    for clip in clips:
-        lines.append(clip.commentary)
-    lines.append("What a session. Stay locked in.")
-    return " ".join(lines)
+_COMMENTATOR_INSTRUCTIONS = (
+    "Live esports play-by-play commentator. Punchy, short, high-energy. "
+    "React to EXACTLY what happened — one or two sentences max. "
+    "Stadium broadcast tone — excited but professional."
+)
 
 
 class HighlightAgent(BaseAgent):
@@ -70,24 +70,24 @@ class HighlightAgent(BaseAgent):
                 await self._store.save_highlight_reel(reel)
                 return reel
 
-            narration_text = _build_narration_text(clips, self._session)
-
-            # Narration + timeline prep run in parallel
-            audio_id_result, clip_data = await asyncio.gather(
-                self._generate_narration(narration_text),
+            # Generate per-clip commentary voices + timeline clip data in parallel
+            voices_result, clip_data = await asyncio.gather(
+                self._generate_clip_voices(clips),
                 self._prepare_timeline_clips(clips),
                 return_exceptions=True,
             )
-            audio_id = None if isinstance(audio_id_result, Exception) else audio_id_result
-            if isinstance(audio_id_result, Exception):
-                logger.warning("Narration failed: %s — proceeding without audio", audio_id_result)
+            clip_audio_ids: list[Optional[str]] = (
+                [] if isinstance(voices_result, Exception) else voices_result
+            )
+            if isinstance(voices_result, Exception):
+                logger.warning("Voice generation failed: %s — proceeding without audio", voices_result)
             if isinstance(clip_data, Exception):
                 logger.error("Clip prep failed: %s", clip_data)
                 reel.status = "failed"
                 await self._store.save_highlight_reel(reel)
                 return reel
 
-            stream_url = await self._assemble_timeline(clip_data, audio_id)
+            stream_url = await self._assemble_timeline(clip_data, clip_audio_ids)
             if stream_url:
                 reel.stream_url = stream_url
                 reel.status     = "complete"
@@ -183,24 +183,41 @@ class HighlightAgent(BaseAgent):
             logger.error("Vertical highlight assembly failed: %s", exc, exc_info=True)
             return None
 
-    async def _generate_narration(self, text: str) -> Optional[str]:
-        logger.info("Generating OmniVoice narration — chars=%d", len(text))
-        return await asyncio.get_event_loop().run_in_executor(None, lambda: self._narration_sync(text))
+    async def _generate_clip_voices(self, clips: list[Clip]) -> list[Optional[str]]:
+        """Generate per-clip commentary voices in parallel. Returns list of audio IDs."""
+        logger.info("Generating commentary voices — %d clips", len(clips))
+        tasks = [
+            asyncio.get_event_loop().run_in_executor(None, lambda c=clip: self._voice_sync(c))
+            for clip in clips
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        audio_ids = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning("Voice failed for clip %d: %s", i, r)
+                audio_ids.append(None)
+            else:
+                audio_ids.append(r)
+        logger.info("Commentary voices ready — %d/%d succeeded", sum(1 for a in audio_ids if a), len(clips))
+        return audio_ids
 
-    def _narration_sync(self, text: str) -> Optional[str]:
+    def _voice_sync(self, clip: Clip) -> Optional[str]:
+        """Generate voiced commentary for one clip. Returns audio ID or None."""
         try:
             import videodb
-            conn = videodb.connect(api_key=VIDEO_DB_API_KEY)
-            coll = conn.get_collection()
-            # generate_voice() — see .agents/skills/videodb/reference/generative.md
+            conn  = videodb.connect(api_key=VIDEO_DB_API_KEY)
+            coll  = conn.get_collection()
             audio = coll.generate_voice(
-                text=text,
-                config={"instructions": "Live esports play-by-play commentator. High energy, punchy, dramatic pauses on big moments. Sounds like a stadium broadcast — excited but professional. Short sentences. React to the action."},
+                text=clip.commentary,
+                config={"instructions": _COMMENTATOR_INSTRUCTIONS},
+                wait=True,
             )
-            logger.info("Narration generated — audio_id=%s", audio.id)
-            return audio.id
+            if audio:
+                logger.debug("Clip voice ready — audio_id=%s clip_type=%s", audio.id, clip.type)
+                return audio.id
+            return None
         except Exception as exc:
-            logger.error("OmniVoice failed: %s", exc)
+            logger.warning("Voice generation failed for clip %s: %s", clip.id, exc)
             return None
 
     async def _prepare_timeline_clips(self, clips: list[Clip]) -> list[tuple]:
@@ -213,12 +230,16 @@ class HighlightAgent(BaseAgent):
             result.append((start, dur, video_id))
         return result
 
-    async def _assemble_timeline(self, clip_data: list[tuple], audio_id: Optional[str]) -> Optional[str]:
+    async def _assemble_timeline(
+        self, clip_data: list[tuple], clip_audio_ids: list[Optional[str]]
+    ) -> Optional[str]:
         return await asyncio.get_event_loop().run_in_executor(
-            None, lambda: self._timeline_sync(clip_data, audio_id)
+            None, lambda: self._timeline_sync(clip_data, clip_audio_ids)
         )
 
-    def _timeline_sync(self, clip_data: list[tuple], audio_id: Optional[str]) -> Optional[str]:
+    def _timeline_sync(
+        self, clip_data: list[tuple], clip_audio_ids: list[Optional[str]]
+    ) -> Optional[str]:
         try:
             import videodb
             from videodb.editor import Timeline, Track, Clip as VClip, VideoAsset, AudioAsset
@@ -228,21 +249,35 @@ class HighlightAgent(BaseAgent):
             timeline.resolution = "1280x720"
             timeline.background = "#000000"
 
+            # Build video track, tracking each clip's start position in the timeline
             video_track = Track()
+            clip_cursors: list[int] = []
             cursor = 0
             for start, dur, video_id in clip_data:
                 if not video_id:
                     continue
-                # VideoAsset(id, start) — start trims the source; duration controls clip length
-                video_track.add_clip(cursor, VClip(asset=VideoAsset(id=video_id, start=int(start)), duration=dur))
+                clip_cursors.append(cursor)
+                video_track.add_clip(
+                    cursor,
+                    VClip(asset=VideoAsset(id=video_id, start=int(start)), duration=dur),
+                )
                 cursor += int(dur) + 1
 
             timeline.add_track(video_track)
 
-            if audio_id:
-                audio_track = Track()
-                audio_track.add_clip(0, VClip(asset=AudioAsset(id=audio_id), duration=cursor))
+            audio_track = Track()
+            for clip_cursor, audio_id in zip(clip_cursors, clip_audio_ids):
+                if audio_id:
+                    audio_track.add_clip(
+                        clip_cursor,
+                        VClip(asset=AudioAsset(id=audio_id, volume=1.0), duration=5),
+                    )
+                    logger.debug("Audio track clip — t=%ds audio_id=%s", clip_cursor, audio_id)
+
+            voiced = sum(1 for a in clip_audio_ids if a)
+            if voiced:
                 timeline.add_track(audio_track)
+            logger.info("Timeline: %d clips, %d commentary tracks", len(clip_cursors), voiced)
 
             url = timeline.generate_stream()
             logger.info("Timeline stream generated — url=%s", url)

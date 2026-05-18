@@ -79,7 +79,7 @@ class AnalysisOutput(BaseModel):
         ),
     )
     summary: str = Field(
-        ...,
+        "",
         description=(
             "One paragraph session summary in second-person coaching voice. "
             "Be specific and vivid. Lead with the session's defining quality in one punchy sentence. "
@@ -88,7 +88,7 @@ class AnalysisOutput(BaseModel):
         ),
     )
     epic_summary: str = Field(
-        ...,
+        "",
         description=(
             "One short, punchy sentence — Spotify Wrapped energy. "
             "Captures the defining vibe of this session. "
@@ -99,7 +99,7 @@ class AnalysisOutput(BaseModel):
         ),
     )
     persona: str = Field(
-        ...,
+        "",
         description=(
             "A 2-4 word player archetype title that captures how the player performed this session. "
             "Arcade Racing examples: 'The Smooth Operator', 'The Overtake Machine', 'The Corner Cutter'. "

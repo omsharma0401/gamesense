@@ -5,27 +5,28 @@ Runs concurrently with MomentAgent. Every 5 s it:
   1. Checks for new high-significance moments since last tick
   2. Runs pattern detection on rolling moment history
   3. If a trigger fires AND cooldown has passed → LLM generates a short cue
-  4. Persists to suggestions table, delivers via macOS notification + Discord
+  4. Generates ElevenLabs voice via VideoDB collection.generate_voice()
+  5. Persists cue + audio_url to suggestions table; logs to Discord
 
 Delivery:
-  - macOS system notification banner (appears over any app, incl. fullscreen games)
-  - Discord webhook (persistent log + secondary channel)
+  - Audio URL (ElevenLabs via VideoDB) — auto-played by the frontend sidebar
+  - Discord webhook — server-side log (no overlay needed)
 Logging: /tmp/gamesense_coach.log — tail this during a session to debug.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import httpx
+import videodb
 
 from agents.interfaces import BaseAgent
-from config import DISCORD_WEBHOOK_URL
+from config import DISCORD_WEBHOOK_URL, VIDEO_DB_API_KEY
 from memory.interfaces import BaseSessionStore
 from llm.interfaces import BaseLLMProvider
 from schemas.session import Moment, Session, Suggestion
@@ -264,52 +265,52 @@ class LiveCoachAgent(BaseAgent):
             if not text:
                 return None
 
+            # Generate ElevenLabs voice via VideoDB
+            audio_url = await self._generate_voice(text, stype)
+
             return Suggestion(
                 session_id=self._session.id,
                 text=text,
                 type=stype,  # type: ignore[arg-type]
                 trigger=trigger_key,
                 significance=7,
+                audio_url=audio_url,
             )
         except Exception as exc:
             logger.warning("LLM generation failed for coaching cue: %s", exc)
             return None
 
+    async def _generate_voice(self, text: str, stype: str) -> Optional[str]:
+        """Generate ElevenLabs voice via VideoDB and return a signed URL."""
+        voice_map = {
+            "hype":    "Charlie",   # energetic
+            "warning": "Rachel",    # calm, direct
+            "tip":     "Daniel",    # measured, clear
+            "focus":   "Aria",      # quiet, focused
+        }
+        voice_name = voice_map.get(stype, "Charlie")
+        try:
+            def _sync_generate():
+                conn = videodb.connect(api_key=VIDEO_DB_API_KEY)
+                coll = conn.get_collection()
+                audio = coll.generate_voice(text, voice_name=voice_name, wait=True)
+                if audio and hasattr(audio, "generate_url"):
+                    return audio.generate_url()
+                return None
+
+            url = await asyncio.get_event_loop().run_in_executor(None, _sync_generate)
+            if url:
+                _coach_log.info("Voice generated — %d chars, voice=%s", len(text), voice_name)
+            return url
+        except Exception as exc:
+            logger.warning("Voice generation failed (cue will still show as text): %s", exc)
+            return None
+
     # ── Delivery ──────────────────────────────────────────────────────────────
 
     async def _deliver(self, suggestion: Suggestion) -> None:
-        """Fire macOS notification banner + Discord webhook in parallel."""
-        await asyncio.gather(
-            self._notify_macos(suggestion),
-            self._notify_discord(suggestion),
-            return_exceptions=True,
-        )
-
-    async def _notify_macos(self, suggestion: Suggestion) -> None:
-        """macOS system notification — appears over any app, incl. fullscreen games."""
-        icons  = {"hype": "🔥", "warning": "⚠️", "tip": "💡", "focus": "🎯"}
-        labels = {"hype": "On fire", "warning": "Watch out", "tip": "Tip", "focus": "Focus"}
-        icon   = icons.get(suggestion.type, "📡")
-        label  = labels.get(suggestion.type, "Coach")
-        # Escape double-quotes so osascript doesn't break
-        safe_text  = suggestion.text.replace('"', "'")
-        safe_label = f"{icon} {label}"
-        script = (
-            f'display notification "{safe_text}" '
-            f'with title "GameSense" '
-            f'subtitle "{safe_label}" '
-            f'sound name "Glass"'
-        )
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subprocess.run(
-                    ["osascript", "-e", script],
-                    timeout=3, capture_output=True,
-                ),
-            )
-        except Exception as exc:
-            logger.debug("macOS notification failed: %s", exc)
+        """Log to Discord as a server-side audit trail."""
+        await self._notify_discord(suggestion)
 
     async def _notify_discord(self, suggestion: Suggestion) -> None:
         """Discord webhook — persistent log in your server channel."""
