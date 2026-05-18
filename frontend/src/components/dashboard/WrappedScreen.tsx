@@ -60,6 +60,8 @@ export default function WrappedScreen({ genre, game }: Props) {
   const [loading, setLoading]       = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [verticalLoading, setVerticalLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const cfg = GENRE_CONFIG[genre];
 
@@ -280,21 +282,23 @@ export default function WrappedScreen({ genre, game }: Props) {
                 <h3 className="text-white font-semibold mb-6 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-gray-400" /> Skill Breakdown
                 </h3>
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={radarData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
-                      <PolarGrid stroke="#27272a" />
-                      <PolarAngleAxis dataKey="subject" tick={{ fill: "#71717a", fontSize: 11 }} />
-                      <Radar
-                        name="Score"
-                        dataKey="value"
-                        stroke={theme.accent}
-                        fill={theme.accent}
-                        fillOpacity={0.25}
-                        strokeWidth={2}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
+                <div className="h-48" style={{ minWidth: 0, minHeight: 192 }} suppressHydrationWarning>
+                  {mounted && (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart data={radarData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+                        <PolarGrid stroke="#27272a" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: "#71717a", fontSize: 11 }} />
+                        <Radar
+                          name="Score"
+                          dataKey="value"
+                          stroke={theme.accent}
+                          fill={theme.accent}
+                          fillOpacity={0.25}
+                          strokeWidth={2}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
@@ -385,7 +389,7 @@ export default function WrappedScreen({ genre, game }: Props) {
                     {reel.status === "complete" && reel.stream_url ? (
                       <>
                         <Dialog>
-                          <DialogTrigger render={<div className="aspect-video bg-gradient-to-br from-orange-500/20 to-black rounded-2xl border border-[#27272a] flex items-center justify-center cursor-pointer hover:border-orange-500/50 transition-colors group" />}>
+                          <DialogTrigger nativeButton={false} render={<div className="aspect-video bg-gradient-to-br from-orange-500/20 to-black rounded-2xl border border-[#27272a] flex items-center justify-center cursor-pointer hover:border-orange-500/50 transition-colors group" />}>
                             <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                               <Play className="w-6 h-6 text-white ml-1" />
                             </div>
@@ -460,7 +464,7 @@ export default function WrappedScreen({ genre, game }: Props) {
                     const durStr   = `${Math.floor(dur / 60)}:${Math.floor(dur % 60).toString().padStart(2, "0")}`;
                     return (
                       <Dialog key={clip.id}>
-                        <DialogTrigger render={<div className="flex-shrink-0 w-48 cursor-pointer group" />}>
+                        <DialogTrigger nativeButton={false} render={<div className="flex-shrink-0 w-48 cursor-pointer group" />}>
                             <div className="aspect-video bg-[#1a1b26] rounded-2xl overflow-hidden relative border border-[#2a2b36] group-hover:border-primary/50 transition-colors mb-2">
                               {clip.thumbnail_url
                                 ? <img src={clip.thumbnail_url} alt={label} className="w-full h-full object-cover" />

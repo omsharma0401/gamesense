@@ -74,6 +74,7 @@ export interface HighlightReel {
   session_id: string;
   stream_url: string | null;
   vertical_stream_url: string | null;
+  thumbnail_url: string | null;
   duration: number | null;
   status: string;
   created_at: string;

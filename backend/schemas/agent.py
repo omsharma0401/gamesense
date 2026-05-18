@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from schemas.session import GameGenre
 
 
@@ -28,28 +28,35 @@ class MomentDetection(BaseModel):
         description="Required when is_moment=True. The category of the event.",
     )
     description: str = Field(
-        ...,
+        "",
         description=(
             "Concrete description of what happened. "
             "If is_moment=False, explain why this is not significant (e.g. 'loading screen')."
         ),
     )
     significance: int = Field(
-        ...,
+        0,
         ge=0, le=10,
         description="0=no moment, 1=minor, 10=game-changing. Use 0 when is_moment=False.",
     )
     timestamp_ms: int = Field(
-        ...,
+        0,
         description="Approximate timestamp in milliseconds from session start.",
     )
     commentary: str = Field(
-        ...,
+        "",
         description=(
             "One-sentence AI commentary for this moment, written as if for a highlight reel. "
             "Example: 'You held the angle perfectly in a 1v3 — clean clutch.'"
         ),
     )
+
+    @field_validator("is_moment", mode="before")
+    @classmethod
+    def coerce_is_moment(cls, v: object) -> bool:
+        if v == "" or v is None:
+            return False
+        return bool(v)
 
 
 # ── AnalysisAgent LLM output ──────────────────────────────────────────────────

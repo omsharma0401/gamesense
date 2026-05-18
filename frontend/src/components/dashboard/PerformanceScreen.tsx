@@ -20,6 +20,8 @@ export default function PerformanceScreen({ genre, game }: Props) {
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const cfg = GENRE_CONFIG[genre];
 
@@ -89,31 +91,32 @@ export default function PerformanceScreen({ genre, game }: Props) {
             </div>
           </div>
 
-          {chartData.length === 0 ? (
+          {chartData.length === 0 && (
             <div className="h-[250px] flex items-center justify-center text-gray-600 text-sm">
               No session data yet — play a {cfg.label} session to see your trend.
             </div>
-          ) : (
-            <div className="h-[250px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="gOverall" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={cfg.color} stopOpacity={0.5} />
-                      <stop offset="95%" stopColor={cfg.color} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="date" stroke="#3f3f46" tick={{ fill: "#71717a", fontSize: 12 }} axisLine={false} tickLine={false} dy={10} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a", borderRadius: "1rem", color: "#fff", padding: "12px" }}
-                  />
-                  <Legend wrapperStyle={{ color: "#71717a", fontSize: 12, paddingTop: 12 }} />
-                  <Area type="monotone" dataKey="overall"     name="Overall"      stroke={cfg.color}   strokeWidth={3} fillOpacity={1} fill="url(#gOverall)" />
-                  <Area type="monotone" dataKey="mechanics"   name="Mechanics"    stroke="#3b82f6"     strokeWidth={2} fill="none" />
-                  <Area type="monotone" dataKey="decisions"   name="Decisions"    stroke="#a855f7"     strokeWidth={2} fill="none" />
-                  <Area type="monotone" dataKey="consistency" name="Consistency"  stroke="#f97316"     strokeWidth={2} fill="none" />
-                </AreaChart>
-              </ResponsiveContainer>
+          )}
+          {chartData.length > 0 && (
+            <div className="h-[250px] w-full" style={{ minWidth: 0, minHeight: 250 }} suppressHydrationWarning>
+              {mounted && (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gOverall" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={cfg.color} stopOpacity={0.5} />
+                        <stop offset="95%" stopColor={cfg.color} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" stroke="#3f3f46" tick={{ fill: "#71717a", fontSize: 12 }} axisLine={false} tickLine={false} dy={10} />
+                    <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a", borderRadius: "1rem", color: "#fff", padding: "12px" }} />
+                    <Legend wrapperStyle={{ color: "#71717a", fontSize: 12, paddingTop: 12 }} />
+                    <Area type="monotone" dataKey="overall" name="Overall" stroke={cfg.color} strokeWidth={3} fillOpacity={1} fill="url(#gOverall)" />
+                    <Area type="monotone" dataKey="mechanics" name="Mechanics" stroke="#3b82f6" strokeWidth={2} fill="none" />
+                    <Area type="monotone" dataKey="decisions" name="Decisions" stroke="#a855f7" strokeWidth={2} fill="none" />
+                    <Area type="monotone" dataKey="consistency" name="Consistency" stroke="#f97316" strokeWidth={2} fill="none" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           )}
         </div>

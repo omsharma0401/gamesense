@@ -40,10 +40,11 @@ _fh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S
 _coach_log.addHandler(_fh)
 _coach_log.setLevel(logging.INFO)
 
-COOLDOWN_SECONDS  = 15        # min gap between any two suggestions
-PATTERN_CHECK_INTERVAL = 30   # how often to run pattern detection
+COOLDOWN_SECONDS  = 10        # min gap between any two suggestions
+PATTERN_CHECK_INTERVAL = 20   # how often to run pattern detection
 TICK_INTERVAL     = 5         # polling interval
-HIGH_SIG_BYPASS   = 9         # significance >= this bypasses cooldown
+HIGH_SIG_BYPASS   = 8         # significance >= this bypasses cooldown
+INTRO_CUE_DELAY   = 20        # fire a welcome cue after this many seconds
 
 _SYSTEM_PROMPT = """\
 You are a live in-game voice coach delivering real-time feedback through Discord overlay.
@@ -97,6 +98,8 @@ class LiveCoachAgent(BaseAgent):
         self._last_pattern_check: float = 0.0
         self._last_moment_ts: int       = 0      # high-water mark for new moments
         self._processed_moment_ids: set[str] = set()
+        self._session_start: float = time.monotonic()
+        self._intro_sent: bool = False
 
         _coach_log.info(
             "LiveCoachAgent started — session=%s genre=%s game=%s",
@@ -136,18 +139,25 @@ class LiveCoachAgent(BaseAgent):
         trigger_text: Optional[str] = None
         trigger_key:  Optional[str] = None
 
+        # ── 0. Intro cue — fire once at session start ─────────────────────────
+        if not self._intro_sent and (now - self._session_start) >= INTRO_CUE_DELAY:
+            self._intro_sent = True
+            trigger_key  = "pattern:idle"
+            trigger_text = "session just started — get the player locked in"
+            _coach_log.info("Trigger: intro cue")
+
         # ── 1. High-significance new moment ───────────────────────────────────
-        if new_moments:
+        if not trigger_key and new_moments:
             best = max(new_moments, key=lambda m: m.significance)
             sig  = best.significance
-            if sig >= 6 and (cooldown_ok or sig >= HIGH_SIG_BYPASS):
+            if sig >= 4 and (cooldown_ok or sig >= HIGH_SIG_BYPASS):
                 trigger_key  = f"moment:{best.type}"
                 trigger_text = (
                     f"{best.type} moment (significance {sig}/10): {best.description}"
                 )
                 _coach_log.info("Trigger: moment — %s sig=%d", best.type, sig)
 
-        # ── 2. Pattern detection (every PATTERN_CHECK_INTERVAL s) ─────────────
+        # ── 2. Pattern detection (every PATTERN_CHECK_INTERVAL s) ────────────
         if not trigger_key and (now - self._last_pattern_check) >= PATTERN_CHECK_INTERVAL:
             self._last_pattern_check = now
             pattern = self._detect_pattern(moments, now_ms)
@@ -309,8 +319,46 @@ class LiveCoachAgent(BaseAgent):
     # ── Delivery ──────────────────────────────────────────────────────────────
 
     async def _deliver(self, suggestion: Suggestion) -> None:
-        """Log to Discord as a server-side audit trail."""
+        """Play audio via system afplay + log to Discord."""
+        if suggestion.audio_url:
+            asyncio.create_task(self._play_audio(suggestion.audio_url))
         await self._notify_discord(suggestion)
+
+    async def _play_audio(self, url: str) -> None:
+        """Download coaching audio and play via macOS afplay.
+
+        Bypasses browser autoplay restrictions — works even when the tab is
+        in the background during fullscreen gameplay.
+        """
+        import os
+        import tempfile
+        _coach_log.info("_play_audio called — url=%s", url[:60] if url else None)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(resp.content)
+                tmp_path = f.name
+            proc = await asyncio.create_subprocess_exec(
+                "afplay", tmp_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            # Clean up temp file once afplay finishes
+            asyncio.create_task(self._cleanup_after(proc, tmp_path))
+            _coach_log.info("afplay started — %s", Path(tmp_path).name)
+        except Exception as exc:
+            logger.warning("afplay playback failed: %s", exc)
+
+    @staticmethod
+    async def _cleanup_after(proc: asyncio.subprocess.Process, path: str) -> None:
+        await proc.wait()
+        try:
+            import os
+            os.unlink(path)
+        except Exception:
+            pass
 
     async def _notify_discord(self, suggestion: Suggestion) -> None:
         """Discord webhook — persistent log in your server channel."""

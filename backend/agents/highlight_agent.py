@@ -30,14 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 def _select_highlight_clips(clips: list[Clip], max_clips: int) -> list[Clip]:
-    """Mix positive + 1-2 negative moments for emotional arc, sorted chronologically."""
-    positive = [c for c in clips if c.type in ("clutch", "kill", "highlight")]
-    negative = [c for c in clips if c.type in ("blunder", "death", "error")]
-    n_neg = min(2, len(negative))
-    n_pos = min(max_clips - n_neg, len(positive))
-    selected = positive[:n_pos] + negative[:n_neg]
-    selected.sort(key=lambda c: c.start_time)
-    logger.info("Clip selection — pos=%d neg=%d total=%d", n_pos, n_neg, len(selected))
+    """Use all clips sorted chronologically — highlight reel = full session story."""
+    selected = sorted(clips, key=lambda c: c.start_time)
+    if len(selected) > max_clips:
+        selected = selected[:max_clips]
+    logger.info("Clip selection — total=%d", len(selected))
     return selected
 
 
@@ -76,7 +73,7 @@ class HighlightAgent(BaseAgent):
                 self._prepare_timeline_clips(clips),
                 return_exceptions=True,
             )
-            clip_audio_ids: list[Optional[str]] = (
+            clip_audio_ids: list[Optional[tuple[str, float]]] = (
                 [] if isinstance(voices_result, Exception) else voices_result
             )
             if isinstance(voices_result, Exception):
@@ -92,6 +89,8 @@ class HighlightAgent(BaseAgent):
                 reel.stream_url = stream_url
                 reel.status     = "complete"
                 reel.duration   = sum(c.duration for c in clips)
+                # Use the first clip's thumbnail as the reel card thumbnail
+                reel.thumbnail_url = next((c.thumbnail_url for c in clips if c.thumbnail_url), None)
                 logger.info("Highlight reel complete — url=%s duration=%.1fs", stream_url, reel.duration)
 
                 # Generate vertical (9:16) version in background — non-blocking
@@ -117,8 +116,10 @@ class HighlightAgent(BaseAgent):
         """Generate 9:16 vertical version of the highlight reel using video.reframe()."""
         logger.info("Generating vertical highlight — session=%s", self._session.id)
         try:
+            import concurrent.futures
+            _daemon_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="vertical")
             vertical_url = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self._vertical_sync(clips)
+                _daemon_pool, lambda: self._vertical_sync(clips)
             )
             if vertical_url:
                 reel.vertical_stream_url = vertical_url
@@ -138,22 +139,32 @@ class HighlightAgent(BaseAgent):
             coll  = conn.get_collection()
             video = coll.get_video(self._session.video_id)
 
+            import time as _time
             reframed: list[tuple[str, float]] = []
             for c in clips:
-                try:
-                    rv = video.reframe(
-                        start=max(0.0, c.start_time),
-                        end=c.end_time,
-                        target="vertical",
-                        mode=ReframeMode.smart,
-                    )
-                    if rv:
-                        # rv.length defaults to 0.0 when not returned; fall back to clip duration
-                        dur = float(rv.length) if rv.length else max(1.0, c.end_time - c.start_time)
-                        reframed.append((rv.id, dur))
-                        logger.debug("Reframed clip — id=%s dur=%.1fs", rv.id, dur)
-                except Exception as exc:
-                    logger.warning("Reframe failed for clip=%s: %s", c.id, exc)
+                rv = None
+                for attempt in range(1, 4):  # up to 3 attempts with back-off
+                    try:
+                        rv = video.reframe(
+                            start=max(0.0, c.start_time),
+                            end=c.end_time,
+                            target="vertical",
+                            mode=ReframeMode.smart,
+                        )
+                        break  # success
+                    except Exception as exc:
+                        wait = attempt * 20  # 20s, 40s, 60s
+                        logger.info(
+                            "Reframe attempt %d/%d failed (clip=%s): %s — retrying in %ds",
+                            attempt, 3, c.id, exc, wait,
+                        )
+                        _time.sleep(wait)
+                if rv:
+                    dur = float(rv.length) if getattr(rv, "length", None) else max(1.0, c.end_time - c.start_time)
+                    reframed.append((rv.id, dur))
+                    logger.debug("Reframed clip — id=%s dur=%.1fs", rv.id, dur)
+                else:
+                    logger.warning("Skipping clip=%s after 3 reframe attempts", c.id)
 
             if not reframed:
                 return None
@@ -183,8 +194,8 @@ class HighlightAgent(BaseAgent):
             logger.error("Vertical highlight assembly failed: %s", exc, exc_info=True)
             return None
 
-    async def _generate_clip_voices(self, clips: list[Clip]) -> list[Optional[str]]:
-        """Generate per-clip commentary voices in parallel. Returns list of audio IDs."""
+    async def _generate_clip_voices(self, clips: list[Clip]) -> list[Optional[tuple[str, float]]]:
+        """Generate per-clip commentary voices in parallel. Returns list of (audio_id, duration) tuples."""
         logger.info("Generating commentary voices — %d clips", len(clips))
         tasks = [
             asyncio.get_event_loop().run_in_executor(None, lambda c=clip: self._voice_sync(c))
@@ -201,8 +212,8 @@ class HighlightAgent(BaseAgent):
         logger.info("Commentary voices ready — %d/%d succeeded", sum(1 for a in audio_ids if a), len(clips))
         return audio_ids
 
-    def _voice_sync(self, clip: Clip) -> Optional[str]:
-        """Generate voiced commentary for one clip. Returns audio ID or None."""
+    def _voice_sync(self, clip: Clip) -> Optional[tuple[str, float]]:
+        """Generate voiced commentary for one clip. Returns (audio_id, duration_seconds) or None."""
         try:
             import videodb
             conn  = videodb.connect(api_key=VIDEO_DB_API_KEY)
@@ -213,8 +224,9 @@ class HighlightAgent(BaseAgent):
                 wait=True,
             )
             if audio:
-                logger.debug("Clip voice ready — audio_id=%s clip_type=%s", audio.id, clip.type)
-                return audio.id
+                dur = float(getattr(audio, "length", None) or getattr(audio, "duration", None) or 5.0)
+                logger.debug("Clip voice ready — audio_id=%s dur=%.1fs clip_type=%s", audio.id, dur, clip.type)
+                return (audio.id, dur)
             return None
         except Exception as exc:
             logger.warning("Voice generation failed for clip %s: %s", clip.id, exc)
@@ -231,14 +243,14 @@ class HighlightAgent(BaseAgent):
         return result
 
     async def _assemble_timeline(
-        self, clip_data: list[tuple], clip_audio_ids: list[Optional[str]]
+        self, clip_data: list[tuple], clip_audio_ids: list[Optional[tuple[str, float]]]
     ) -> Optional[str]:
         return await asyncio.get_event_loop().run_in_executor(
             None, lambda: self._timeline_sync(clip_data, clip_audio_ids)
         )
 
     def _timeline_sync(
-        self, clip_data: list[tuple], clip_audio_ids: list[Optional[str]]
+        self, clip_data: list[tuple], clip_audio_ids: list[Optional[tuple[str, float]]]
     ) -> Optional[str]:
         try:
             import videodb
@@ -266,13 +278,14 @@ class HighlightAgent(BaseAgent):
             timeline.add_track(video_track)
 
             audio_track = Track()
-            for clip_cursor, audio_id in zip(clip_cursors, clip_audio_ids):
-                if audio_id:
+            for clip_cursor, audio_entry in zip(clip_cursors, clip_audio_ids):
+                if audio_entry:
+                    audio_id, audio_dur = audio_entry
                     audio_track.add_clip(
                         clip_cursor,
-                        VClip(asset=AudioAsset(id=audio_id, volume=1.0), duration=5),
+                        VClip(asset=AudioAsset(id=audio_id, volume=1.0), duration=audio_dur),
                     )
-                    logger.debug("Audio track clip — t=%ds audio_id=%s", clip_cursor, audio_id)
+                    logger.debug("Audio track clip — t=%ds audio_id=%s dur=%.1fs", clip_cursor, audio_id, audio_dur)
 
             voiced = sum(1 for a in clip_audio_ids if a)
             if voiced:

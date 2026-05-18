@@ -145,5 +145,21 @@ class GraphitiGraphStore(BaseGraphStore):
             return episodes
 
         except Exception as exc:
-            logger.error("Graph search failed for player=%s: %s", player_id, exc)
+            if "doesn't have an index" in str(exc) or "Binder exception" in str(exc):
+                # Schema mismatch from a Graphiti version upgrade — try rebuilding indices
+                logger.warning("Graph index missing — attempting to rebuild: %s", exc)
+                try:
+                    await self._graphiti.build_indices_and_constraints()
+                    logger.info("Graph indices rebuilt — retrying search")
+                    results = await self._graphiti.search(query=query, num_results=limit)
+                    episodes = []
+                    for result in results:
+                        fact = getattr(result, "fact", None) or getattr(result, "content", str(result))
+                        if fact:
+                            episodes.append(str(fact))
+                    return episodes
+                except Exception as rebuild_exc:
+                    logger.warning("Graph index rebuild failed — returning empty context: %s", rebuild_exc)
+                    return []
+            logger.warning("Graph search failed for player=%s: %s", player_id, exc)
             return []

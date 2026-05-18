@@ -222,14 +222,18 @@ class AnalysisAgent(BaseAgent):
         """Ask the LLM to score the session. Returns (Score, patterns, summary, epic_summary, persona)."""
         logger.info("Requesting LLM session analysis — model=%s", self._llm.model_name)
 
-        raw = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self._llm.complete_structured(
-                system=_ANALYSIS_SYSTEM_PROMPT,
-                user=_build_analysis_prompt(self._session, moments),
-                schema_name="analysis_output",
-            ),
-        )
+        try:
+            raw = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._llm.complete_structured(
+                    system=_ANALYSIS_SYSTEM_PROMPT,
+                    user=_build_analysis_prompt(self._session, moments),
+                    schema_name="analysis_output",
+                ),
+            )
+        except Exception as llm_exc:
+            logger.warning("LLM call failed in _score_session — using moment-based fallback: %s", llm_exc)
+            raw = "{}"
 
         try:
             output = AnalysisOutput.model_validate_json(raw)
@@ -469,7 +473,22 @@ class AnalysisAgent(BaseAgent):
                     logger.debug("No shots matched — falling back to time-based clip")
 
             # Generate clip using pre-calculated time window (works with or without search results)
-            stream_url = video.generate_stream(timeline=[(start_time, end_time)])
+            try:
+                stream_url = video.generate_stream(timeline=[(start_time, end_time)])
+            except Exception as exc:
+                # If end_time exceeds video length, parse the actual length and retry once
+                err = str(exc)
+                if "exceeds video length" in err:
+                    m = re.search(r"video length ([\d.]+)", err)
+                    if m:
+                        vlen = float(m.group(1))
+                        clamped = max(start_time + 1.0, vlen - 0.1)
+                        logger.debug("Retrying clip with clamped end=%.1f (video=%.1fs)", clamped, vlen)
+                        stream_url = video.generate_stream(timeline=[(start_time, clamped)])
+                    else:
+                        raise
+                else:
+                    raise
             return stream_url
 
         except Exception as exc:

@@ -130,6 +130,7 @@ class HighlightReel(BaseModel):
     session_id: str
     stream_url: Optional[str] = Field(None, description="16:9 landscape HLS stream URL")
     vertical_stream_url: Optional[str] = Field(None, description="9:16 vertical HLS URL for Reels/TikTok sharing")
+    thumbnail_url: Optional[str] = Field(None, description="Static thumbnail from the first clip")
     duration: Optional[float] = None
     status: HighlightStatus = "pending"
     created_at: datetime = Field(default_factory=datetime.utcnow)

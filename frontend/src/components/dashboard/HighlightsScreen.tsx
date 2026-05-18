@@ -123,8 +123,12 @@ export default function HighlightsScreen({ genre, game }: Props) {
                 {/* Landscape reel card */}
                 <Dialog>
                   <div className="group cursor-pointer">
-                    <DialogTrigger render={<div className={`aspect-[4/3] rounded-[2rem] bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} border border-[#27272a] group-hover:border-primary/50 transition-all relative flex items-center justify-center overflow-hidden mb-5 shadow-lg`} />}>
-                        <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors duration-500" />
+                    <DialogTrigger nativeButton={false} render={<div className={`aspect-[4/3] rounded-[2rem] bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} border border-[#27272a] group-hover:border-primary/50 transition-all relative flex items-center justify-center overflow-hidden mb-5 shadow-lg`} />}>
+                        {reel.thumbnail_url
+                          ? <img src={reel.thumbnail_url} alt="Highlight thumbnail" className="absolute inset-0 w-full h-full object-cover" />
+                          : null
+                        }
+                        <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors duration-500" />
                         <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)] transform group-hover:scale-110 transition-transform duration-500 z-10 border border-white/20">
                           <Play className="w-7 h-7 text-white ml-1" />
                         </div>
