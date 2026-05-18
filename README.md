@@ -95,7 +95,7 @@ The backend is a pipeline of specialised agents that coordinate through shared s
 - Node.js 20 or later
 - A VideoDB API key — [console.videodb.io](https://console.videodb.io)
 - An OpenRouter API key (free tier works) — [openrouter.ai](https://openrouter.ai)
-- A Groq API key (free tier, eval judge only) — [console.groq.com](https://console.groq.com)
+- A Groq API key (optional and not needed, free tier, eval judge only) — [console.groq.com](https://console.groq.com)
 - Optional: a Discord webhook URL for the live cue log
 
 ---
@@ -145,7 +145,7 @@ Open `.env` in any editor and fill in your keys:
 ```env
 VIDEO_DB_API_KEY=your_videodb_key_here
 OPENROUTER_API_KEY=your_openrouter_key_here
-GROQ_API_KEY=your_groq_key_here          # optional, eval judge only
+GROQ_API_KEY=your_groq_key_here          # optional, eval judge only (not needed)
 DISCORD_WEBHOOK_URL=                      # optional, live cue log
 ```
 
