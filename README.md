@@ -16,7 +16,7 @@ GameSense is a multi agent AI dashboard that watches your gameplay in real time 
 
 ## Demo
 
-Link to demo video: _[insert YouTube / Loom / Vimeo link before submission]_
+Link to demo video: [Watch Demo](https://drive.google.com/drive/folders/1CG4AD22jtywjCaX1kLB69T5XBxvoi8JY)
 
 ---
 
