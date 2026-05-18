@@ -105,7 +105,7 @@ The backend is a pipeline of specialised agents that coordinate through shared s
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/gamesense.git
+git clone https://github.com/omsharma0401/gamesense.git
 cd gamesense
 ```
 
