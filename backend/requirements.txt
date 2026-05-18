@@ -11,22 +11,21 @@ python-dotenv
 # LLM providers (OpenAI-compatible SDK works for both OpenRouter and Groq)
 openai
 
-# Memory — temporal knowledge graph
+# Memory — temporal knowledge graph (pulls in kuzu automatically)
 graphiti-core[kuzu]
 
 # Memory — async SQLite
 aiosqlite
 
-# HTTP client (for Discord webhook + async requests)
+# HTTP client (Discord webhook, audio download, async test client)
 httpx
 
 # Validation
 pydantic>=2.0
 
+# WebSocket client for ws_listener
+websockets
+
 # Testing
 pytest
 pytest-asyncio
-httpx  # also used as async test client
-
-# WebSocket client for ws_listener
-websockets
