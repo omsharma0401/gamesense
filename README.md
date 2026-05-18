@@ -6,7 +6,14 @@ Hit record, play your game, stop when you are done. By the time you open the das
 
 The system runs a pipeline of specialised AI agents concurrently during your session. One captures and streams your screen through VideoDB's live infrastructure. Another indexes the footage visually and by audio as it arrives. A third watches the indexed feed in real time and marks the moments worth keeping. A fourth speaks to you while you play. After you stop, the pipeline scores your session, compiles the clips, stitches the best ones into a narrated highlight reel, and writes a short note about what to focus on next time — drawing from your full session history, not just the current run. Every part of this that touches video goes through VideoDB.
 
+
+<img width="1469" height="800" alt="image" src="https://github.com/user-attachments/assets/5ae034fc-dc8e-4995-b159-aa2da9049a4a" />
+
 ---
+
+<img width="1470" height="801" alt="image" src="https://github.com/user-attachments/assets/6a23887c-ec7b-4316-9e6d-da377d152254" />
+
+
 
 ## Short Description (submission, 200 words)
 
